@@ -22,9 +22,9 @@ const KEYS = ['settings', 'products', 'customers', 'vendors', 'lenders', 'bills'
 const LOW_STOCK_THRESHOLD = 5;
 
 const NAV_ITEMS = [
+  { id: 'sell', label: 'Sell', icon: '\u{1F9FE}' },
   { id: 'home', label: 'Home', icon: '\u{1F3E0}' },
   { id: 'products', label: 'Products', icon: '\u{1F4E6}' },
-  { id: 'sell', label: 'Sell', icon: '\u{1F9FE}' },
   { id: 'grn', label: 'GRN', icon: '\u{1F4E5}' },
   { id: 'customers', label: 'Customers', icon: '\u{1F465}' },
   { id: 'vendors', label: 'Vendors', icon: '\u{1F69A}' },
@@ -32,7 +32,7 @@ const NAV_ITEMS = [
   { id: 'reports', label: 'Reports', icon: '\u{1F4CA}' },
   { id: 'settings', label: 'Settings', icon: '\u{2699}\u{FE0F}' }
 ];
-const MOBILE_PRIMARY = ['home', 'products', 'sell', 'customers'];
+const MOBILE_PRIMARY = ['sell', 'home', 'products', 'customers'];
 const MOBILE_MORE = ['grn', 'vendors', 'loans', 'reports', 'settings'];
 
 /* ---------------- API helpers ---------------- */
@@ -167,7 +167,23 @@ function showApp() {
   document.getElementById('sidebarUser').textContent = STATE.user;
   document.getElementById('logoutLinkSidebar').onclick = (e) => { e.preventDefault(); logout(); };
   renderNav();
-  goTab('home');
+  goTab('sell');
+  startLiveClock();
+}
+
+let liveClockTimer = null;
+function updateLiveClock() {
+  const el = document.getElementById('liveClock');
+  if (!el) return;
+  const now = new Date();
+  const time = now.toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' });
+  const date = now.toLocaleDateString('en-LK', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+  el.innerHTML = `<span class="live-clock-time">${time}</span><span class="live-clock-date">${date}</span>`;
+}
+function startLiveClock() {
+  if (liveClockTimer) return;
+  updateLiveClock();
+  liveClockTimer = setInterval(updateLiveClock, 60000);
 }
 
 /* ---------------- Nav ---------------- */
@@ -209,6 +225,7 @@ function goTab(tab) {
   });
   document.getElementById('pageTitle').textContent = NAV_ITEMS.find((n) => n.id === tab).label;
   renderOnlineOrdersBadge();
+  if (tab !== 'sell') document.getElementById('sellTotalBarRoot').innerHTML = '';
   const renderers = {
     home: renderHome, products: renderProducts, sell: renderSell, grn: renderGRN,
     customers: renderCustomers, vendors: renderVendors, loans: renderLoans,
@@ -831,7 +848,7 @@ async function saveGrn() {
     vendor.purchased = (vendor.purchased || 0) + total;
     vendor.balance = (vendor.purchased || 0) - (vendor.paid || 0);
     vendor.ledger = vendor.ledger || [];
-    vendor.ledger.push({ id: uid('L'), type: 'grn', date: todayISO(), amount: total, ref: grn.number, note: '', by: STATE.user });
+    vendor.ledger.push({ id: uid('L'), type: 'grn', date: todayISO(), amount: total, ref: grn.number, note: '', balanceAfter: vendor.balance, by: STATE.user });
   }
   await Promise.all([saveKey('grns'), saveKey('products'), saveKey('vendors')]);
   grnDraft = null;
@@ -874,9 +891,10 @@ function renderSell() {
         </div>
       `).join('')}
     `}
-    <div class="grid" id="sell-product-grid">
+    <div class="grid sell-grid" id="sell-product-grid">
       ${list.length === 0 ? '<div class="empty-state">No products in stock.</div>' : list.map((p) => `
-        <div class="card" data-id="${p.id}" style="cursor:pointer">
+        <div class="card sell-tile" data-id="${p.id}" style="cursor:pointer">
+          ${p.photo ? `<img class="sell-tile-photo" src="${p.photo}">` : `<div class="sell-tile-photo"></div>`}
           <div style="font-weight:600">${escapeHtml(p.name)}</div>
           <div class="sub" style="color:var(--ink-soft);font-size:0.85rem">${escapeHtml(p.category)}</div>
           <div style="margin-top:6px;display:flex;justify-content:space-between"><strong>${money(p.sellingPrice)}</strong><span class="badge">${p.stock} left</span></div>
@@ -912,10 +930,16 @@ function renderSell() {
         </div>
         ${STATE.sellPayment === 'bank' ? `<div class="qr-box"><div id="qrTarget"></div><div style="margin-top:8px;font-size:0.85rem;color:var(--ink-soft)">${bankDetailsText()}</div></div>` : ''}
       `}
-      <div style="display:flex;justify-content:space-between;margin:10px 0"><strong>Total</strong><strong>${money(total)}</strong></div>
-      <button class="btn block" id="sell-complete" ${STATE.sellCart.length === 0 ? 'disabled' : ''}>${STATE.sellType === 'quote' ? 'Generate Quotation' : 'Complete Sale'}</button>
     </div>
+    <div class="sell-total-spacer"></div>
   `;
+
+  const totalBarHtml = `
+    <div class="sell-total-bar">
+      <div class="sell-total-bar-amount"><span>Total</span><strong>${money(total)}</strong></div>
+      <button class="btn" id="sell-complete" ${STATE.sellCart.length === 0 ? 'disabled' : ''}>${STATE.sellType === 'quote' ? 'Generate Quotation' : 'Complete Sale'}</button>
+    </div>`;
+  document.getElementById('sellTotalBarRoot').innerHTML = totalBarHtml;
 
   if (STATE.sellType !== 'quote' && STATE.sellPayment === 'bank') renderQr('qrTarget', bankDetailsText());
 
@@ -1313,9 +1337,15 @@ function openCustomerForm(id) {
     <div class="modal-actions">
       <button class="btn secondary" id="cf-cancel">Cancel</button>
       <button class="btn" id="cf-save">Save</button>
+      ${cu ? '<button class="btn danger" id="cf-delete">Delete</button>' : ''}
     </div>
   `);
   document.getElementById('cf-cancel').onclick = closeModal;
+  if (cu) document.getElementById('cf-delete').onclick = () => {
+    if (!confirm(`Delete ${cu.name}? This cannot be undone.`)) return;
+    STATE.customers = STATE.customers.filter((x) => x.id !== cu.id);
+    saveKey('customers').then(() => { closeModal(); renderCustomers(); toast('Customer deleted'); });
+  };
   document.getElementById('cf-save').onclick = async () => {
     const name = document.getElementById('cf-name').value.trim();
     if (!name) { toast('Name is required'); return; }
@@ -1340,7 +1370,7 @@ function openCustomerLedger(id) {
     <button class="btn small" id="cl-pay">Record Payment</button>
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
-      sorted.map((l) => `<div class="list-row"><div><div class="title">${labelForLedgerType(l.type)} ${l.ref ? '(' + l.ref + ')' : ''}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong></div>`).join('')}
+      sorted.map((l) => `<div class="list-row"><div><div class="title">${labelForLedgerType(l.type)} ${l.ref ? '(' + l.ref + ')' : ''}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><div style="text-align:right"><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong>${l.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l.balanceAfter)}</div>` : ''}</div></div>`).join('')}
     <button class="btn secondary block" style="margin-top:10px" id="cl-close">Close</button>
   `);
   document.getElementById('cl-close').onclick = closeModal;
@@ -1404,18 +1434,26 @@ function openVendorForm(id) {
     <h3>${v ? 'Edit Vendor' : 'Add Vendor'}</h3>
     <div class="field"><label>Name</label><input id="vf-name" value="${v ? escapeHtml(v.name) : ''}"></div>
     <div class="field"><label>Phone</label><input id="vf-phone" value="${v ? escapeHtml(v.phone || '') : ''}"></div>
+    <div class="field"><label>Address</label><input id="vf-address" value="${v ? escapeHtml(v.address || '') : ''}"></div>
     <div class="modal-actions">
       <button class="btn secondary" id="vf-cancel">Cancel</button>
       <button class="btn" id="vf-save">Save</button>
+      ${v ? '<button class="btn danger" id="vf-delete">Delete</button>' : ''}
     </div>
   `);
   document.getElementById('vf-cancel').onclick = closeModal;
+  if (v) document.getElementById('vf-delete').onclick = () => {
+    if (!confirm(`Delete ${v.name}? This cannot be undone.`)) return;
+    STATE.vendors = STATE.vendors.filter((x) => x.id !== v.id);
+    saveKey('vendors').then(() => { closeModal(); renderVendors(); toast('Vendor deleted'); });
+  };
   document.getElementById('vf-save').onclick = async () => {
     const name = document.getElementById('vf-name').value.trim();
     if (!name) { toast('Name is required'); return; }
     const phone = document.getElementById('vf-phone').value.trim();
-    if (v) Object.assign(v, { name, phone });
-    else STATE.vendors.push({ id: uid('V'), name, phone, purchased: 0, paid: 0, balance: 0, ledger: [] });
+    const address = document.getElementById('vf-address').value.trim();
+    if (v) Object.assign(v, { name, phone, address });
+    else STATE.vendors.push({ id: uid('V'), name, phone, address, purchased: 0, paid: 0, balance: 0, ledger: [] });
     await saveKey('vendors');
     closeModal();
     renderVendors();
@@ -1427,7 +1465,7 @@ function openVendorLedger(id) {
   const sorted = [...(v.ledger || [])].sort((a, b) => b.date.localeCompare(a.date));
   openModal(`
     <h3>${escapeHtml(v.name)}</h3>
-    <div class="sub">${escapeHtml(v.phone || '')}</div>
+    <div class="sub">${escapeHtml(v.phone || '')}${v.address ? ' · ' + escapeHtml(v.address) : ''}</div>
     <div class="grid" style="margin:10px 0">
       <div class="card"><div class="label">Purchased</div><div class="value">${money(v.purchased)}</div></div>
       <div class="card"><div class="label">Paid</div><div class="value">${money(v.paid)}</div></div>
@@ -1437,7 +1475,7 @@ function openVendorLedger(id) {
     <button class="btn small" id="vl-pay">Record Payment</button>
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
-      sorted.map((l) => `<div class="list-row"><div><div class="title">${escapeHtml(v.name)} — ${labelForLedgerType(l.type)}${l.ref ? ' (' + escapeHtml(l.ref) + ')' : ''}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong></div>`).join('')}
+      sorted.map((l) => `<div class="list-row"><div><div class="title">${escapeHtml(v.name)} — ${labelForLedgerType(l.type)}${l.ref ? ' (' + escapeHtml(l.ref) + ')' : ''}${l.method ? ' (' + escapeHtml(l.method) + ')' : ''}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><div style="text-align:right"><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong>${l.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l.balanceAfter)}</div>` : ''}</div></div>`).join('')}
     <button class="btn secondary block" style="margin-top:10px" id="vl-close">Close</button>
   `);
   document.getElementById('vl-close').onclick = closeModal;
@@ -1450,6 +1488,9 @@ function openVendorPaymentForm(id) {
     <h3>Record Payment — ${escapeHtml(v.name)}</h3>
     <div class="field"><label>Amount</label><input type="number" step="0.01" id="vp-amount"></div>
     <div class="field"><label>Date</label><input type="date" id="vp-date" value="${todayISO()}"></div>
+    <div class="field"><label>Method</label>
+      <select id="vp-method"><option>Cash</option><option>Online Transfer</option><option>Cheque</option><option>Other</option></select>
+    </div>
     <div class="field"><label>Note</label><input id="vp-note"></div>
     <div class="modal-actions">
       <button class="btn secondary" id="vp-cancel">Cancel</button>
@@ -1463,7 +1504,11 @@ function openVendorPaymentForm(id) {
     v.paid = (v.paid || 0) + amount;
     v.balance = (v.purchased || 0) - v.paid;
     v.ledger = v.ledger || [];
-    v.ledger.push({ id: uid('L'), type: 'payment', date: document.getElementById('vp-date').value || todayISO(), amount, note: document.getElementById('vp-note').value.trim(), by: STATE.user });
+    v.ledger.push({
+      id: uid('L'), type: 'payment', date: document.getElementById('vp-date').value || todayISO(), amount,
+      method: document.getElementById('vp-method').value, note: document.getElementById('vp-note').value.trim(),
+      balanceAfter: v.balance, by: STATE.user
+    });
     await saveKey('vendors');
     closeModal();
     openVendorLedger(id);
@@ -1500,19 +1545,27 @@ function openLenderForm(id, onSaved) {
     <h3>${l ? 'Edit Lender' : 'New Lender'}</h3>
     <div class="field"><label>Name</label><input id="lf-name" value="${l ? escapeHtml(l.name) : ''}"></div>
     <div class="field"><label>Phone</label><input id="lf-phone" value="${l ? escapeHtml(l.phone || '') : ''}"></div>
+    <div class="field"><label>Address</label><input id="lf-address" value="${l ? escapeHtml(l.address || '') : ''}"></div>
     <div class="modal-actions">
       <button class="btn secondary" id="lf-cancel">Cancel</button>
       <button class="btn" id="lf-save">Save</button>
+      ${l ? '<button class="btn danger" id="lf-delete">Delete</button>' : ''}
     </div>
   `);
   document.getElementById('lf-cancel').onclick = closeModal;
+  if (l) document.getElementById('lf-delete').onclick = () => {
+    if (!confirm(`Delete ${l.name}? This cannot be undone.`)) return;
+    STATE.lenders = STATE.lenders.filter((x) => x.id !== l.id);
+    saveKey('lenders').then(() => { closeModal(); renderLoans(); toast('Lender deleted'); });
+  };
   document.getElementById('lf-save').onclick = async () => {
     const name = document.getElementById('lf-name').value.trim();
     if (!name) { toast('Name is required'); return; }
     const phone = document.getElementById('lf-phone').value.trim();
+    const address = document.getElementById('lf-address').value.trim();
     let saved = l;
-    if (l) Object.assign(l, { name, phone });
-    else { saved = { id: uid('LN'), name, phone, given: 0, repaid: 0, balance: 0, ledger: [] }; STATE.lenders.push(saved); }
+    if (l) Object.assign(l, { name, phone, address });
+    else { saved = { id: uid('LN'), name, phone, address, given: 0, repaid: 0, balance: 0, ledger: [] }; STATE.lenders.push(saved); }
     await saveKey('lenders');
     if (onSaved) onSaved(saved);
     else { closeModal(); renderLoans(); }
@@ -1564,19 +1617,21 @@ function openLenderLedger(id) {
   const sorted = [...(l.ledger || [])].sort((a, b) => b.date.localeCompare(a.date));
   openModal(`
     <h3>${escapeHtml(l.name)}</h3>
-    <div class="sub">${escapeHtml(l.phone || '')}</div>
+    <div class="sub">${escapeHtml(l.phone || '')}${l.address ? ' · ' + escapeHtml(l.address) : ''}</div>
     <div class="grid" style="margin:10px 0">
       <div class="card"><div class="label">Given</div><div class="value">${money(l.given)}</div></div>
       <div class="card"><div class="label">Repaid</div><div class="value">${money(l.repaid)}</div></div>
       <div class="card"><div class="label">Balance</div><div class="value">${money(l.balance)}</div></div>
     </div>
+    <button class="btn small" id="ll-edit">Edit</button>
     <button class="btn small" id="ll-pay">Record Payment</button>
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
-      sorted.map((l2) => `<div class="list-row"><div><div class="title">${escapeHtml(l.name)} — ${l2.type === 'loan' ? 'Loan Given' : 'Repayment'}${l2.method ? ' (' + escapeHtml(l2.method) + ')' : ''}</div><div class="sub">${fmtDate(l2.date)} ${l2.note ? '· ' + escapeHtml(l2.note) : ''}</div></div><strong>${l2.type === 'payment' ? '-' : '+'}${money(l2.amount)}</strong></div>`).join('')}
+      sorted.map((l2) => `<div class="list-row"><div><div class="title">${escapeHtml(l.name)} — ${l2.type === 'loan' ? 'Loan Given' : 'Repayment'}${l2.method ? ' (' + escapeHtml(l2.method) + ')' : ''}</div><div class="sub">${fmtDate(l2.date)} ${l2.note ? '· ' + escapeHtml(l2.note) : ''}</div></div><div style="text-align:right"><strong>${l2.type === 'payment' ? '-' : '+'}${money(l2.amount)}</strong>${l2.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l2.balanceAfter)}</div>` : ''}</div></div>`).join('')}
     <button class="btn secondary block" style="margin-top:10px" id="ll-close">Close</button>
   `);
   document.getElementById('ll-close').onclick = closeModal;
+  document.getElementById('ll-edit').onclick = () => openLenderForm(id);
   document.getElementById('ll-pay').onclick = () => openLoanPaymentForm(id);
 }
 function openLoanPaymentForm(id) {

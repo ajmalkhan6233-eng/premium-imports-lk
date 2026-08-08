@@ -60,6 +60,73 @@ async function boot() {
   renderGrid();
   updateCartCount();
   document.getElementById('cartBtn').onclick = openCartDrawer;
+  startParticleBackground();
+}
+
+/* ---- Ambient gold particle background ---- */
+function startParticleBackground() {
+  const canvas = document.getElementById('particleCanvas');
+  if (!canvas || !canvas.getContext) return;
+  const ctx = canvas.getContext('2d');
+  let width, height, particles;
+
+  function makeParticles() {
+    const count = Math.max(35, Math.min(90, Math.round((width * height) / 22000)));
+    particles = Array.from({ length: count }, () => ({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      r: 1 + Math.random() * 2.2,
+      dx: (Math.random() - 0.5) * 0.18,
+      dy: -0.05 - Math.random() * 0.15,
+      a: 0.15 + Math.random() * 0.35
+    }));
+  }
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    makeParticles();
+  }
+  function tick() {
+    ctx.clearRect(0, 0, width, height);
+    particles.forEach((p) => {
+      p.x += p.dx;
+      p.y += p.dy;
+      if (p.x < -5) p.x = width + 5;
+      if (p.x > width + 5) p.x = -5;
+      if (p.y < -5) p.y = height + 5;
+      if (p.y > height + 5) p.y = -5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(201, 162, 75, ${p.a})`;
+      ctx.fill();
+    });
+    requestAnimationFrame(tick);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(tick);
+}
+
+/* ---- Scroll-in reveal for product cards ---- */
+let cardObserver = null;
+function observeCardsForReveal() {
+  const cards = document.querySelectorAll('.product-card.card-pending');
+  if (!('IntersectionObserver' in window)) {
+    cards.forEach((el) => el.classList.remove('card-pending'));
+    return;
+  }
+  if (!cardObserver) {
+    cardObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.remove('card-pending');
+          entry.target.classList.add('card-in');
+          cardObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15 });
+  }
+  cards.forEach((el) => cardObserver.observe(el));
 }
 
 function renderFilters() {
@@ -79,11 +146,12 @@ function renderGrid() {
     grid.innerHTML = '<div class="empty-state">No products available right now. Please check back soon.</div>';
     return;
   }
-  grid.innerHTML = list.map((p) => {
+  grid.innerHTML = list.map((p, idx) => {
     const hasPrice = p.sellingPrice && p.sellingPrice > 0;
     const waNumber = (SHOP.settings.whatsappNumber || '').replace(/\D/g, '');
     const waText = encodeURIComponent(`Hi, I'm interested in "${p.name}". Can you tell me the price?`);
-    return `<div class="product-card">
+    const delay = (idx % 10) * 45;
+    return `<div class="product-card card-pending" style="animation-delay:${delay}ms">
       ${p.photo ? `<img class="photo" src="${p.photo}">` : `<div class="photo"></div>`}
       <div class="body">
         <div class="name">${escapeHtml(p.name)}</div>
@@ -97,6 +165,7 @@ function renderGrid() {
   grid.querySelectorAll('[data-add]').forEach((btn) => {
     btn.onclick = () => addToCart(btn.dataset.add);
   });
+  observeCardsForReveal();
 }
 
 function addToCart(productId) {

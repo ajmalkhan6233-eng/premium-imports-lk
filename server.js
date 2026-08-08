@@ -49,14 +49,14 @@ function loadData() {
 function loadSecrets() {
   if (!fs.existsSync(SECRETS_FILE)) {
     fs.writeFileSync(SECRETS_FILE, JSON.stringify({ anthropicApiKey: '' }, null, 2));
-    return { anthropicApiKey: '' };
+    return { anthropicApiKey: process.env.ANTHROPIC_API_KEY || '' };
   }
   try {
     const raw = fs.readFileSync(SECRETS_FILE, 'utf8');
     const parsed = JSON.parse(raw);
-    return { anthropicApiKey: parsed.anthropicApiKey || '' };
+    return { anthropicApiKey: parsed.anthropicApiKey || process.env.ANTHROPIC_API_KEY || '' };
   } catch (e) {
-    return { anthropicApiKey: '' };
+    return { anthropicApiKey: process.env.ANTHROPIC_API_KEY || '' };
   }
 }
 
