@@ -1,0 +1,58 @@
+# Static preview of the GRN entry screen (web-preview/), deployed to
+# GitHub Pages on every push to main. Plain HTML/CSS/JS, no build step,
+# no framework. Same deploy pattern as this account's noor_app repo:
+# upload-pages-artifact + deploy-pages, not the older peaceiris action.
+#
+# This is a visual/UX preview only, saved to the browser's localStorage.
+# It has no connection to the real Premium Imports LK server or data.json.
+
+name: Web Preview (GRN)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy GRN preview to Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web-preview
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Summary
+        run: |
+          {
+            echo "## GRN preview deployed"
+            echo ""
+            echo "Static, no-server preview of the GRN entry screen only."
+            echo "Saves to the browser's localStorage on whatever device"
+            echo "opens it — not connected to the real server or data.json."
+            echo ""
+            echo "- URL: ${{ steps.deployment.outputs.page_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"

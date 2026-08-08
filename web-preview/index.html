@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>GRN Preview — Premium Imports LK</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>GRN Entry — Preview</h1>
+  <div class="sub">Visual/UX preview only — nothing here is saved to a server</div>
+</header>
+
+<main>
+  <div class="card">
+    <div class="field">
+      <label>Vendor Name</label>
+      <input id="vendorName" list="vendorSuggestions" placeholder="e.g. Dubai Supplier Co">
+      <datalist id="vendorSuggestions"></datalist>
+    </div>
+    <div class="field">
+      <label>Date</label>
+      <input type="date" id="grnDate">
+    </div>
+  </div>
+
+  <div class="section-title"><h2>Line Items</h2></div>
+
+  <div class="card">
+    <div class="field">
+      <label>Product Name</label>
+      <input id="li-name" list="productSuggestions" placeholder="e.g. Dubai Chocolate Bar">
+      <datalist id="productSuggestions"></datalist>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Category</label>
+        <input id="li-category" list="categorySuggestions" placeholder="e.g. Chocolate">
+        <datalist id="categorySuggestions"></datalist>
+      </div>
+      <div class="field">
+        <label>Cost Price</label>
+        <input type="number" step="0.01" min="0" id="li-cost" placeholder="0.00">
+      </div>
+      <div class="field">
+        <label>Quantity</label>
+        <input type="number" step="1" min="1" id="li-qty" value="1">
+      </div>
+    </div>
+    <button class="btn block" id="addLineBtn">+ Add Line</button>
+  </div>
+
+  <div id="linesList"></div>
+
+  <div class="total-bar" id="totalBar">
+    <span>Total</span>
+    <strong id="totalValue">Rs. 0.00</strong>
+  </div>
+
+  <button class="btn block primary" id="saveGrnBtn">Save GRN</button>
+  <div class="empty-note" id="saveNote"></div>
+
+  <div class="section-title"><h2>Saved GRNs</h2></div>
+  <div id="savedList"></div>
+</main>
+
+<div id="modalRoot"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
