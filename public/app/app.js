@@ -238,12 +238,11 @@ function renderHome() {
   const today = todayISO();
   const monthKey = today.slice(0, 7);
 
-  const todaysBills = STATE.bills.filter((b) => b.date === today);
-  const monthBills = STATE.bills.filter((b) => (b.date || '').slice(0, 7) === monthKey);
+  const todaysBills = STATE.bills.filter((b) => b.date === today && b.type !== 'quote');
+  const monthBills = STATE.bills.filter((b) => (b.date || '').slice(0, 7) === monthKey && b.type !== 'quote');
 
   const todaysSales = todaysBills.reduce((s, b) => s + (b.total || 0), 0);
-  const monthSales = monthBills.reduce((s, b) => s + (b.total || 0), 0);
-  const monthProfit = monthBills.reduce((s, b) => {
+  const todaysProfit = todaysBills.reduce((s, b) => {
     const billProfit = (b.items || []).reduce((ps, it) => ps + ((it.price - it.cost) * it.qty), 0);
     return s + billProfit;
   }, 0);
@@ -255,23 +254,62 @@ function renderHome() {
   c.innerHTML = `
     <div class="grid">
       <div class="card stat-card" id="stat-today"><div class="label">Today's Sales</div><div class="value">${money(todaysSales)}</div></div>
-      <div class="card stat-card" id="stat-month"><div class="label">This Month Sales</div><div class="value">${money(monthSales)}</div></div>
-      <div class="card stat-card" id="stat-profit"><div class="label">This Month Profit</div><div class="value">${money(monthProfit)}</div></div>
+      <div class="card stat-card" id="stat-todayprofit"><div class="label">Today's Profit</div><div class="value">${money(todaysProfit)}</div></div>
       <div class="card stat-card" id="stat-stockvalue"><div class="label">Stock Value</div><div class="value">${money(stockValue)}</div></div>
-      <div class="card stat-card ${totalDues > 0 ? 'warn' : ''}" id="stat-dues"><div class="label">Total Customer Dues</div><div class="value">${money(totalDues)}</div></div>
-      <div class="card stat-card ${totalLoans > 0 ? 'warn' : ''}" id="stat-loans"><div class="label">Total Loans Outstanding</div><div class="value">${money(totalLoans)}</div></div>
+      <div class="card stat-card ${totalDues > 0 ? 'warn' : ''}" id="stat-dues"><div class="label">Customer Dues</div><div class="value">${money(totalDues)}</div></div>
+      <div class="card stat-card ${totalLoans > 0 ? 'warn' : ''}" id="stat-loans"><div class="label">Loans Outstanding</div><div class="value">${money(totalLoans)}</div></div>
+      <div class="card stat-card" id="stat-lowstock"><div class="label">Low Stock</div><div class="value">${lowStock.length}</div></div>
     </div>
-    <div class="section-title"><h3>Low Stock (≤ ${LOW_STOCK_THRESHOLD})</h3></div>
-    ${lowStock.length === 0 ? '<div class="empty-state">Nothing low on stock.</div>' :
-      lowStock.map((p) => `<div class="list-row"><div><div class="title">${escapeHtml(p.name)}</div><div class="sub">${escapeHtml(p.category)}</div></div><span class="badge due">${p.stock} left</span></div>`).join('')}
+    <div class="card" id="monthly-detail-link" style="margin-top:14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+      <span>View monthly detail</span><span>&rsaquo;</span>
+    </div>
   `;
 
   document.getElementById('stat-today').onclick = () => showBreakdown("Today's Sales", todaysBills);
-  document.getElementById('stat-month').onclick = () => showBreakdown('This Month Sales', monthBills);
-  document.getElementById('stat-profit').onclick = () => showProfitBreakdown('This Month Profit', monthBills);
+  document.getElementById('stat-todayprofit').onclick = () => showProfitBreakdown("Today's Profit", todaysBills);
   document.getElementById('stat-stockvalue').onclick = () => showStockValueBreakdown();
   document.getElementById('stat-dues').onclick = () => showDuesBreakdown();
   document.getElementById('stat-loans').onclick = () => showLoansBreakdown();
+  document.getElementById('stat-lowstock').onclick = () => showLowStockBreakdown(lowStock);
+  document.getElementById('monthly-detail-link').onclick = () => renderMonthlyDetail();
+}
+function showLowStockBreakdown(lowStock) {
+  openModal(`
+    <h3>Low Stock (≤ ${LOW_STOCK_THRESHOLD})</h3>
+    ${lowStock.length === 0 ? '<div class="empty-state">Nothing low on stock.</div>' :
+      lowStock.map((p) => `<div class="list-row"><div><div class="title">${escapeHtml(p.name)}</div><div class="sub">${escapeHtml(p.category)}</div></div><span class="badge due">${p.stock} left</span></div>`).join('')}
+    <div class="modal-actions"><button class="btn secondary block" id="closeBreakdown">Close</button></div>
+  `);
+  document.getElementById('closeBreakdown').onclick = closeModal;
+}
+
+/* ---- Monthly detail (secondary screen, linked from Home) ---- */
+function renderMonthlyDetail() {
+  const c = document.getElementById('pageContent');
+  document.getElementById('pageTitle').textContent = 'Monthly Detail';
+  const monthKey = todayISO().slice(0, 7);
+  const monthBills = STATE.bills.filter((b) => (b.date || '').slice(0, 7) === monthKey && b.type !== 'quote');
+  const monthSales = monthBills.reduce((s, b) => s + (b.total || 0), 0);
+  const monthProfit = monthBills.reduce((s, b) => {
+    const billProfit = (b.items || []).reduce((ps, it) => ps + ((it.price - it.cost) * it.qty), 0);
+    return s + billProfit;
+  }, 0);
+  const productsByValue = [...STATE.products].sort((a, b) => (b.costPrice * b.stock) - (a.costPrice * a.stock));
+  const totalStockValue = STATE.products.reduce((s, p) => s + (p.costPrice || 0) * (p.stock || 0), 0);
+
+  c.innerHTML = `
+    <div class="list-row" id="md-back" style="cursor:pointer"><span>&lsaquo; Back to Home</span></div>
+    <div class="grid" style="margin-top:10px">
+      <div class="card stat-card" id="md-sales"><div class="label">This Month Sales</div><div class="value">${money(monthSales)}</div></div>
+      <div class="card stat-card" id="md-profit"><div class="label">This Month Profit</div><div class="value">${money(monthProfit)}</div></div>
+    </div>
+    <div class="section-title"><h3>Full Stock Breakdown</h3><strong>${money(totalStockValue)}</strong></div>
+    ${productsByValue.length === 0 ? '<div class="empty-state">No products yet.</div>' :
+      productsByValue.map((p) => `<div class="list-row"><div><div class="title">${escapeHtml(p.name)}</div><div class="sub">${escapeHtml(p.category)} · ${p.stock} × ${money(p.costPrice)}</div></div><strong>${money((p.costPrice || 0) * (p.stock || 0))}</strong></div>`).join('')}
+  `;
+  document.getElementById('md-back').onclick = () => goTab('home');
+  document.getElementById('md-sales').onclick = () => showBreakdown('This Month Sales', monthBills);
+  document.getElementById('md-profit').onclick = () => showProfitBreakdown('This Month Profit', monthBills);
 }
 
 function showBreakdown(title, bills) {
@@ -404,6 +442,7 @@ function openProductForm(id) {
       </div>
       <div class="field"><label>Brand</label><input id="pf-brand" value="${p ? escapeHtml(p.brand || '') : ''}"></div>
     </div>
+    <div class="field"><label>Source (optional)</label><input id="pf-source" placeholder="e.g. Dubai" value="${p ? escapeHtml(p.source || '') : ''}"></div>
     <div class="row">
       <div class="field"><label>Cost Price</label><input type="number" step="0.01" id="pf-cost" value="${p ? p.costPrice : ''}"></div>
       <div class="field"><label>Selling Price</label><input type="number" step="0.01" id="pf-price" value="${p ? p.sellingPrice : ''}"></div>
@@ -446,6 +485,7 @@ function openProductForm(id) {
     if (!name) { toast('Name is required'); return; }
     const category = document.getElementById('pf-category').value;
     const brand = document.getElementById('pf-brand').value.trim();
+    const source = document.getElementById('pf-source').value.trim();
     const costPrice = parseFloat(document.getElementById('pf-cost').value) || 0;
     const sellingPrice = parseFloat(document.getElementById('pf-price').value) || 0;
     const stock = parseInt(document.getElementById('pf-stock').value, 10) || 0;
@@ -453,14 +493,14 @@ function openProductForm(id) {
     const now = new Date().toISOString();
     if (p) {
       const priceChanged = p.sellingPrice !== sellingPrice;
-      Object.assign(p, { name, category, brand, costPrice, sellingPrice, stock, notes, photo: photoData, updatedAt: now });
+      Object.assign(p, { name, category, brand, source, costPrice, sellingPrice, stock, notes, photo: photoData, updatedAt: now });
       if (priceChanged) {
         p.priceHistory = p.priceHistory || [];
         p.priceHistory.push({ price: sellingPrice, date: now });
       }
     } else {
       STATE.products.push({
-        id: uid('P'), name, category, brand, costPrice, sellingPrice, stock, notes, photo: photoData,
+        id: uid('P'), name, category, brand, source, costPrice, sellingPrice, stock, notes, photo: photoData,
         priceHistory: [{ price: sellingPrice, date: now }], createdAt: now, updatedAt: now
       });
     }
@@ -511,7 +551,7 @@ function renderGRN() {
     <div class="section-title"><h3>Confirmed Lines</h3></div>
     ${grnDraft.items.length === 0 ? '<div class="empty-state">No items added yet.</div>' :
       grnDraft.items.map((it, idx) => `
-        <div class="list-row"><div><div class="title">${escapeHtml(it.name)}</div><div class="sub">${it.qty} × ${money(it.cost)}</div></div>
+        <div class="list-row" data-edit-idx="${idx}"><div><div class="title">${escapeHtml(it.name)}</div><div class="sub">${escapeHtml(it.category || '')} · ${it.qty} × ${money(it.cost)}</div></div>
         <div style="display:flex;align-items:center;gap:10px"><strong>${money(it.qty * it.cost)}</strong><button class="btn small secondary" data-idx="${idx}">Remove</button></div></div>
       `).join('')}
     <div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between"><strong>Total</strong><strong>${money(total)}</strong></div></div>
@@ -528,7 +568,11 @@ function renderGRN() {
   document.getElementById('grn-scan-photo').onclick = startGrnScan;
   document.getElementById('grn-scan-input').onchange = handleGrnScanFile;
   c.querySelectorAll('[data-idx]').forEach((btn) => {
-    btn.onclick = () => { grnDraft.items.splice(parseInt(btn.dataset.idx, 10), 1); renderGRN(); };
+    btn.onclick = (e) => { e.stopPropagation(); grnDraft.items.splice(parseInt(btn.dataset.idx, 10), 1); renderGRN(); };
+  });
+  c.querySelectorAll('[data-edit-idx]').forEach((row) => {
+    row.style.cursor = 'pointer';
+    row.onclick = () => openGrnLineEdit(parseInt(row.dataset.editIdx, 10));
   });
   c.querySelectorAll('[data-ai-add]').forEach((btn) => {
     btn.onclick = () => reviewAiSuggestion(parseInt(btn.dataset.aiAdd, 10));
@@ -540,10 +584,11 @@ function renderGRN() {
   if (saveBtn) saveBtn.onclick = saveGrn;
 }
 
-function showScanSetupModal() {
+function showScanSetupModal(kind) {
+  const draftsText = kind === 'bill' ? 'drafts line items from an old paper bill' : 'drafts GRN lines';
   openModal(`
     <h3>Photo scan needs setup</h3>
-    <p>This feature reads a photo of an invoice or the products themselves and drafts GRN lines for you to check. It needs an Anthropic API key added first.</p>
+    <p>This feature reads a photo and ${draftsText} for you to check. It needs an Anthropic API key added first.</p>
     <p style="color:var(--ink-soft);font-size:0.9rem">Ask whoever set up this computer to open <code>secrets.json</code> in the project folder, paste the key between the quotes for <code>"anthropicApiKey"</code>, then restart the server.</p>
     <button class="btn secondary block" id="scan-setup-close">Close</button>
   `);
@@ -638,7 +683,7 @@ function reviewAiSuggestion(idx) {
       STATE.products.push(product);
       await saveKey('products');
     }
-    grnDraft.items.push({ productId: product.id, name: product.name, qty, cost });
+    grnDraft.items.push({ productId: product.id, name: product.name, category: product.category, qty, cost });
     grnDraft.aiSuggestions.splice(idx, 1);
     closeModal();
     renderGRN();
@@ -715,7 +760,7 @@ function openInlineNewProduct(nameGuess) {
     };
     STATE.products.push(product);
     await saveKey('products');
-    grnDraft.items.push({ productId: product.id, name: product.name, qty, cost });
+    grnDraft.items.push({ productId: product.id, name: product.name, category: product.category, qty, cost });
     closeModal();
     renderGRN();
     toast('New product added to GRN');
@@ -733,7 +778,38 @@ function openGrnQtyCost(product) {
   document.getElementById('gq-add').onclick = () => {
     const qty = parseInt(document.getElementById('gq-qty').value, 10) || 1;
     const cost = parseFloat(document.getElementById('gq-cost').value) || 0;
-    grnDraft.items.push({ productId: product.id, name: product.name, qty, cost });
+    grnDraft.items.push({ productId: product.id, name: product.name, category: product.category, qty, cost });
+    closeModal();
+    renderGRN();
+  };
+}
+function openGrnLineEdit(idx) {
+  const it = grnDraft.items[idx];
+  openModal(`
+    <h3>Edit Line Item</h3>
+    <div class="field"><label>Name</label><input id="ge-name" value="${escapeHtml(it.name)}"></div>
+    <div class="field"><label>Category</label>
+      <select id="ge-category">${STATE.settings.categories.map((c) => `<option ${it.category === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}</select>
+    </div>
+    <div class="row">
+      <div class="field"><label>Cost Price</label><input type="number" step="0.01" id="ge-cost" value="${it.cost}"></div>
+      <div class="field"><label>Qty received</label><input type="number" id="ge-qty" value="${it.qty}"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="ge-cancel">Cancel</button>
+      <button class="btn" id="ge-save">Save</button>
+      <button class="btn danger" id="ge-remove">Remove</button>
+    </div>
+  `);
+  document.getElementById('ge-cancel').onclick = closeModal;
+  document.getElementById('ge-remove').onclick = () => { grnDraft.items.splice(idx, 1); closeModal(); renderGRN(); };
+  document.getElementById('ge-save').onclick = () => {
+    const name = document.getElementById('ge-name').value.trim();
+    if (!name) { toast('Name is required'); return; }
+    it.name = name;
+    it.category = document.getElementById('ge-category').value;
+    it.cost = parseFloat(document.getElementById('ge-cost').value) || 0;
+    it.qty = parseInt(document.getElementById('ge-qty').value, 10) || 1;
     closeModal();
     renderGRN();
   };
@@ -755,7 +831,7 @@ async function saveGrn() {
     vendor.purchased = (vendor.purchased || 0) + total;
     vendor.balance = (vendor.purchased || 0) - (vendor.paid || 0);
     vendor.ledger = vendor.ledger || [];
-    vendor.ledger.push({ id: uid('L'), type: 'grn', date: todayISO(), amount: total, note: grn.number, by: STATE.user });
+    vendor.ledger.push({ id: uid('L'), type: 'grn', date: todayISO(), amount: total, ref: grn.number, note: '', by: STATE.user });
   }
   await Promise.all([saveKey('grns'), saveKey('products'), saveKey('vendors')]);
   grnDraft = null;
@@ -765,6 +841,7 @@ async function saveGrn() {
 
 /* ================= SELL ================= */
 let sellCategoryFilter = 'All';
+let sellScanSuggestions = [];
 function renderSell() {
   const c = document.getElementById('pageContent');
   const cats = ['All', ...STATE.settings.categories];
@@ -776,9 +853,27 @@ function renderSell() {
     <div class="toggle-group">
       <button data-type="bill" class="${STATE.sellType === 'bill' ? 'active' : ''}">Bill</button>
       <button data-type="memo" class="${STATE.sellType === 'memo' ? 'active' : ''}">Credit Memo</button>
+      <button data-type="quote" class="${STATE.sellType === 'quote' ? 'active' : ''}">Quotation</button>
     </div>
     <div class="pill-filters">${cats.map((cat) => `<button data-cat="${escapeHtml(cat)}" class="${cat === sellCategoryFilter ? 'active' : ''}">${escapeHtml(cat)}</button>`).join('')}</div>
-    <input class="field" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px" id="sell-search" placeholder="Search products...">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <input style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px" id="sell-search" placeholder="Search products...">
+      <button class="btn small secondary" id="sell-scan-bill">📷 Scan Old Bill</button>
+    </div>
+    <input type="file" accept="image/*" capture="environment" id="sell-scan-input" class="hidden">
+    ${sellScanSuggestions.length === 0 ? '' : `
+      <div class="section-title"><h3 style="color:var(--gold-dark)">AI suggested — check before saving</h3></div>
+      ${sellScanSuggestions.map((s, idx) => `
+        <div class="list-row" style="border-color:var(--gold)">
+          <div><div class="title">${escapeHtml(s.name || '(unreadable name)')}</div>
+            <div class="sub">${s.quantity === null || s.quantity === undefined ? 'Qty: ?' : 'Qty: ' + s.quantity} · ${s.price === null || s.price === undefined ? 'Price: ?' : 'Price: ' + money(s.price)}</div></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn small" data-bs-add="${idx}">Review & Add</button>
+            <button class="btn small secondary" data-bs-discard="${idx}">Discard</button>
+          </div>
+        </div>
+      `).join('')}
+    `}
     <div class="grid" id="sell-product-grid">
       ${list.length === 0 ? '<div class="empty-state">No products in stock.</div>' : list.map((p) => `
         <div class="card" data-id="${p.id}" style="cursor:pointer">
@@ -802,25 +897,27 @@ function renderSell() {
       </div>`).join('')}
 
     <div class="card" style="margin-top:10px">
-      <div class="field"><label>Customer ${STATE.sellPayment === 'credit' ? '(required for credit)' : '(optional)'}</label>
+      <div class="field"><label>Customer ${STATE.sellPayment === 'credit' && STATE.sellType !== 'quote' ? '(required for credit)' : '(optional)'}</label>
         <select id="sell-customer">
           <option value="">Walk-in</option>
           ${STATE.customers.map((cu) => `<option value="${cu.id}" ${STATE.sellCustomerId === cu.id ? 'selected' : ''}>${escapeHtml(cu.name)}</option>`).join('')}
           <option value="__new__">+ Add new customer</option>
         </select>
       </div>
-      <div class="toggle-group">
-        <button data-pay="cash" class="${STATE.sellPayment === 'cash' ? 'active' : ''}">Cash</button>
-        <button data-pay="bank" class="${STATE.sellPayment === 'bank' ? 'active' : ''}">Bank</button>
-        <button data-pay="credit" class="${STATE.sellPayment === 'credit' ? 'active' : ''}">Credit</button>
-      </div>
-      ${STATE.sellPayment === 'bank' ? `<div class="qr-box"><div id="qrTarget"></div><div style="margin-top:8px;font-size:0.85rem;color:var(--ink-soft)">${bankDetailsText()}</div></div>` : ''}
+      ${STATE.sellType === 'quote' ? `<p class="sub">A quotation is a shareable price estimate — it does not deduct stock or record payment.</p>` : `
+        <div class="toggle-group">
+          <button data-pay="cash" class="${STATE.sellPayment === 'cash' ? 'active' : ''}">Cash</button>
+          <button data-pay="bank" class="${STATE.sellPayment === 'bank' ? 'active' : ''}">Bank</button>
+          <button data-pay="credit" class="${STATE.sellPayment === 'credit' ? 'active' : ''}">Credit</button>
+        </div>
+        ${STATE.sellPayment === 'bank' ? `<div class="qr-box"><div id="qrTarget"></div><div style="margin-top:8px;font-size:0.85rem;color:var(--ink-soft)">${bankDetailsText()}</div></div>` : ''}
+      `}
       <div style="display:flex;justify-content:space-between;margin:10px 0"><strong>Total</strong><strong>${money(total)}</strong></div>
-      <button class="btn block" id="sell-complete" ${STATE.sellCart.length === 0 ? 'disabled' : ''}>Complete Sale</button>
+      <button class="btn block" id="sell-complete" ${STATE.sellCart.length === 0 ? 'disabled' : ''}>${STATE.sellType === 'quote' ? 'Generate Quotation' : 'Complete Sale'}</button>
     </div>
   `;
 
-  if (STATE.sellPayment === 'bank') renderQr('qrTarget', bankDetailsText());
+  if (STATE.sellType !== 'quote' && STATE.sellPayment === 'bank') renderQr('qrTarget', bankDetailsText());
 
   c.querySelectorAll('.toggle-group button[data-type]').forEach((b) => {
     b.onclick = () => { STATE.sellType = b.dataset.type; renderSell(); };
@@ -840,6 +937,14 @@ function renderSell() {
   };
   document.querySelectorAll('#sell-product-grid .card').forEach((el) => {
     el.onclick = () => addToCart(el.dataset.id);
+  });
+  document.getElementById('sell-scan-bill').onclick = startBillScan;
+  document.getElementById('sell-scan-input').onchange = handleBillScanFile;
+  c.querySelectorAll('[data-bs-add]').forEach((b) => {
+    b.onclick = () => reviewBillSuggestion(parseInt(b.dataset.bsAdd, 10));
+  });
+  c.querySelectorAll('[data-bs-discard]').forEach((b) => {
+    b.onclick = () => { sellScanSuggestions.splice(parseInt(b.dataset.bsDiscard, 10), 1); renderSell(); };
   });
   c.querySelectorAll('[data-qtyminus]').forEach((b) => b.onclick = () => { adjustQty(parseInt(b.dataset.qtyminus, 10), -1); });
   c.querySelectorAll('[data-qtyplus]').forEach((b) => b.onclick = () => { adjustQty(parseInt(b.dataset.qtyplus, 10), 1); });
@@ -918,54 +1023,190 @@ function openQuickAddCustomer() {
     renderSell();
   };
 }
+async function startBillScan() {
+  if (STATE.secretsStatus === null) {
+    try {
+      const res = await fetch('/api/grn-scan/status');
+      const data = await res.json();
+      STATE.secretsStatus = { configured: !!data.configured };
+    } catch (e) {
+      STATE.secretsStatus = { configured: false };
+    }
+  }
+  if (!STATE.secretsStatus.configured) {
+    showScanSetupModal('bill');
+    return;
+  }
+  document.getElementById('sell-scan-input').click();
+}
+function handleBillScanFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  compressImage(file, 1024, async (dataUrl) => {
+    const base64 = dataUrl.split(',')[1];
+    toast('Scanning bill...');
+    try {
+      const res = await fetch('/api/bill-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mediaType: 'image/jpeg' })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'not_configured') {
+          STATE.secretsStatus = { configured: false };
+          showScanSetupModal('bill');
+          return;
+        }
+        toast(data.message || 'Scan failed');
+        return;
+      }
+      if (!data.lines || data.lines.length === 0) {
+        toast('Could not read any products from that photo.');
+        return;
+      }
+      sellScanSuggestions = sellScanSuggestions.concat(data.lines);
+      renderSell();
+      toast(`Found ${data.lines.length} possible line(s) — review before adding`);
+    } catch (err) {
+      toast('Could not reach the server for scanning.');
+    } finally {
+      e.target.value = '';
+    }
+  });
+}
+function reviewBillSuggestion(idx) {
+  const s = sellScanSuggestions[idx];
+  let matchedProduct = null;
+  openModal(`
+    <h3>Review scanned line</h3>
+    <div class="field"><label>Match to product</label><input id="bs-search" placeholder="Search products..." value="${escapeHtml(s.name || '')}"></div>
+    <div id="bs-results"></div>
+    <div class="row">
+      <div class="field"><label>Qty</label><input type="number" id="bs-qty" value="${s.quantity !== null && s.quantity !== undefined ? s.quantity : 1}"></div>
+      <div class="field"><label>Price</label><input type="number" step="0.01" id="bs-price" value="${s.price !== null && s.price !== undefined ? s.price : ''}"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="bs-cancel">Cancel</button>
+      <button class="btn" id="bs-addcart">Add to Cart</button>
+      <button class="btn danger" id="bs-discard">Discard line</button>
+    </div>
+  `);
+  const renderResults = (q) => {
+    const results = q ? STATE.products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase())) : [];
+    document.getElementById('bs-results').innerHTML = results.map((p) => `<div class="list-row" data-id="${p.id}"><div><div class="title">${escapeHtml(p.name)}</div><div class="sub">${escapeHtml(p.category)} · stock ${p.stock}</div></div></div>`).join('');
+    document.querySelectorAll('#bs-results [data-id]').forEach((el) => {
+      el.onclick = () => {
+        matchedProduct = STATE.products.find((p) => p.id === el.dataset.id);
+        document.getElementById('bs-search').value = matchedProduct.name;
+        document.getElementById('bs-results').innerHTML = '';
+        if (!document.getElementById('bs-price').value) document.getElementById('bs-price').value = matchedProduct.sellingPrice;
+      };
+    });
+  };
+  document.getElementById('bs-search').oninput = (e) => { matchedProduct = null; renderResults(e.target.value.trim()); };
+  renderResults(s.name || '');
+  document.getElementById('bs-cancel').onclick = closeModal;
+  document.getElementById('bs-discard').onclick = () => { sellScanSuggestions.splice(idx, 1); closeModal(); renderSell(); };
+  document.getElementById('bs-addcart').onclick = () => {
+    if (!matchedProduct) { toast('Search and select a matching product first'); return; }
+    const qty = parseInt(document.getElementById('bs-qty').value, 10) || 1;
+    const price = parseFloat(document.getElementById('bs-price').value) || matchedProduct.sellingPrice;
+    if (qty > matchedProduct.stock) { toast('Not enough stock'); return; }
+    const existing = STATE.sellCart.find((it) => it.productId === matchedProduct.id);
+    if (existing) existing.qty += qty;
+    else STATE.sellCart.push({ productId: matchedProduct.id, name: matchedProduct.name, qty, price, cost: matchedProduct.costPrice });
+    sellScanSuggestions.splice(idx, 1);
+    closeModal();
+    renderSell();
+    toast('Added to cart');
+  };
+}
+function nextBillNumber() {
+  const start = parseInt(STATE.settings.startingBillNumber, 10) || 1;
+  const count = STATE.bills.filter((b) => b.type !== 'quote').length;
+  return `INV-${String(start + count).padStart(4, '0')}`;
+}
 async function completeSale() {
   if (STATE.sellCart.length === 0) return;
-  if (STATE.sellPayment === 'credit' && !STATE.sellCustomerId) { toast('Select a customer for credit sales'); return; }
+  const isQuote = STATE.sellType === 'quote';
+  if (!isQuote && STATE.sellPayment === 'credit' && !STATE.sellCustomerId) { toast('Select a customer for credit sales'); return; }
   const total = STATE.sellCart.reduce((s, it) => s + it.qty * it.price, 0);
   const customer = STATE.sellCustomerId ? STATE.customers.find((x) => x.id === STATE.sellCustomerId) : null;
   const bill = {
-    id: uid('B'), number: nextNumber(STATE.bills, 'INV'), type: STATE.sellType,
+    id: uid('B'),
+    number: isQuote ? nextNumber(STATE.bills.filter((b) => b.type === 'quote'), 'QUO') : nextBillNumber(),
+    type: STATE.sellType,
     date: todayISO(), time: nowTimeStr(),
     customerId: customer ? customer.id : null, customerName: customer ? customer.name : 'Walk-in',
     items: STATE.sellCart.map((it) => ({ productId: it.productId, name: it.name, qty: it.qty, price: it.price, cost: it.cost })),
-    total, paymentType: STATE.sellPayment,
-    paid: STATE.sellPayment === 'credit' ? 0 : total,
-    balanceDue: STATE.sellPayment === 'credit' ? total : 0,
+    total,
+    paymentType: isQuote ? null : STATE.sellPayment,
+    paid: isQuote ? 0 : (STATE.sellPayment === 'credit' ? 0 : total),
+    balanceDue: isQuote ? 0 : (STATE.sellPayment === 'credit' ? total : 0),
     by: STATE.user, source: 'in-store'
   };
   STATE.bills.push(bill);
-  STATE.sellCart.forEach((it) => {
-    const p = STATE.products.find((x) => x.id === it.productId);
-    if (p) p.stock -= it.qty;
-  });
-  if (STATE.sellPayment === 'credit' && customer) {
-    customer.dues = (customer.dues || 0) + total;
-    customer.ledger = customer.ledger || [];
-    customer.ledger.push({ id: uid('L'), type: bill.type, date: bill.date, amount: total, balanceAfter: customer.dues, ref: bill.number, note: '', by: STATE.user });
+  if (!isQuote) {
+    STATE.sellCart.forEach((it) => {
+      const p = STATE.products.find((x) => x.id === it.productId);
+      if (p) p.stock -= it.qty;
+    });
+    if (STATE.sellPayment === 'credit' && customer) {
+      customer.dues = (customer.dues || 0) + total;
+      customer.ledger = customer.ledger || [];
+      customer.ledger.push({ id: uid('L'), type: bill.type, date: bill.date, amount: total, balanceAfter: customer.dues, ref: bill.number, note: '', by: STATE.user });
+    }
   }
-  await Promise.all([saveKey('bills'), saveKey('products'), customer ? saveKey('customers') : Promise.resolve()]);
+  await Promise.all([
+    saveKey('bills'),
+    isQuote ? Promise.resolve() : saveKey('products'),
+    (!isQuote && customer) ? saveKey('customers') : Promise.resolve()
+  ]);
   STATE.sellCart = [];
   STATE.sellCustomerId = null;
+  sellScanSuggestions = [];
   showReceipt(bill);
   renderSell();
 }
+function typeLabel(bill) {
+  return bill.type === 'memo' ? 'Credit Memo' : bill.type === 'quote' ? 'Quotation' : 'Invoice';
+}
+function suggestUpsellProducts(bill) {
+  const inBillIds = new Set(bill.items.map((it) => it.productId));
+  const billCategories = new Set(bill.items.map((it) => {
+    const p = STATE.products.find((x) => x.id === it.productId);
+    return p ? p.category : null;
+  }).filter(Boolean));
+  const candidates = STATE.products.filter((p) => !inBillIds.has(p.id) && (p.stock || 0) > 0);
+  const sameCategory = candidates.filter((p) => billCategories.has(p.category)).sort((a, b) => (b.stock || 0) - (a.stock || 0));
+  let picks = sameCategory.slice(0, 3);
+  if (picks.length < 3) {
+    const rest = candidates.filter((p) => !picks.includes(p)).sort((a, b) => (b.stock || 0) - (a.stock || 0));
+    picks = picks.concat(rest.slice(0, 3 - picks.length));
+  }
+  return picks;
+}
 function showReceipt(bill) {
   const shopName = STATE.settings.shopName || 'Premium Imports LK';
-  const lines = bill.items.map((it) => `${it.name} x${it.qty} = ${money(it.qty * it.price)}`).join('\n');
-  const waText = encodeURIComponent(`${shopName}\n${bill.type === 'memo' ? 'Credit Memo' : 'Invoice'} ${bill.number}\nDate: ${bill.date} ${bill.time}\n\n${lines}\n\nTotal: ${money(bill.total)}\nPayment: ${bill.paymentType}\n\nThank you!`);
+  const label = typeLabel(bill);
+  const lines = bill.items.map((it) => `*${it.name}* x${it.qty} = ${money(it.qty * it.price)}`).join('\n');
+  const upsells = bill.type === 'quote' ? [] : suggestUpsellProducts(bill);
+  const upsellText = upsells.length ? `\n\n✨ *You might also like* ✨\n${upsells.map((p) => `⭐ ${p.name} — ${money(p.sellingPrice)}`).join('\n')}` : '';
+  const waText = encodeURIComponent(`✨ *${shopName}* ✨\n${label} ${bill.number}\nDate: ${bill.date} ${bill.time}\n\n${lines}\n\n*Total: ${money(bill.total)}*${bill.paymentType ? `\nPayment: ${bill.paymentType}` : ''}${upsellText}\n\nThank you for shopping with us! 🙏`);
   const customer = bill.customerId ? STATE.customers.find((c) => c.id === bill.customerId) : null;
   const waNumber = customer && customer.phone ? customer.phone.replace(/\D/g, '') : '';
   openModal(`
     <div id="receiptPrintArea">
       <h3>${shopName}</h3>
-      <div>${bill.type === 'memo' ? 'CREDIT MEMO' : 'INVOICE'} ${bill.number}</div>
+      <div>${label.toUpperCase()} ${bill.number}</div>
       <div class="sub">${fmtDate(bill.date)} ${bill.time} · ${escapeHtml(bill.customerName)}</div>
       <table style="margin-top:10px">
         <tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
         ${bill.items.map((it) => `<tr><td>${escapeHtml(it.name)}</td><td>${it.qty}</td><td>${money(it.price)}</td><td>${money(it.qty * it.price)}</td></tr>`).join('')}
       </table>
       <div style="display:flex;justify-content:space-between;margin-top:10px"><strong>Total</strong><strong>${money(bill.total)}</strong></div>
-      <div class="sub">Payment: ${bill.paymentType}</div>
+      ${bill.paymentType ? `<div class="sub">Payment: ${bill.paymentType}</div>` : ''}
     </div>
     <div class="modal-actions">
       <button class="btn secondary" id="rc-print">Print / Save PDF</button>
@@ -1023,7 +1264,7 @@ function reviewOrder(orderId) {
     }
     const total = o.items.reduce((s, it) => s + it.qty * it.price, 0);
     const bill = {
-      id: uid('B'), number: nextNumber(STATE.bills, 'INV'), type: 'bill',
+      id: uid('B'), number: nextBillNumber(), type: 'bill',
       date: todayISO(), time: nowTimeStr(), customerId: null, customerName: o.customerName,
       items: o.items.map((it) => {
         const p = STATE.products.find((x) => x.id === it.productId);
@@ -1196,7 +1437,7 @@ function openVendorLedger(id) {
     <button class="btn small" id="vl-pay">Record Payment</button>
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
-      sorted.map((l) => `<div class="list-row"><div><div class="title">${labelForLedgerType(l.type)}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong></div>`).join('')}
+      sorted.map((l) => `<div class="list-row"><div><div class="title">${escapeHtml(v.name)} — ${labelForLedgerType(l.type)}${l.ref ? ' (' + escapeHtml(l.ref) + ')' : ''}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong></div>`).join('')}
     <button class="btn secondary block" style="margin-top:10px" id="vl-close">Close</button>
   `);
   document.getElementById('vl-close').onclick = closeModal;
@@ -1332,7 +1573,7 @@ function openLenderLedger(id) {
     <button class="btn small" id="ll-pay">Record Payment</button>
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
-      sorted.map((l2) => `<div class="list-row"><div><div class="title">${l2.type === 'loan' ? 'Loan Given' : 'Repayment'} ${l2.method ? '(' + l2.method + ')' : ''}</div><div class="sub">${fmtDate(l2.date)} ${l2.note ? '· ' + escapeHtml(l2.note) : ''}</div></div><strong>${l2.type === 'payment' ? '-' : '+'}${money(l2.amount)}</strong></div>`).join('')}
+      sorted.map((l2) => `<div class="list-row"><div><div class="title">${escapeHtml(l.name)} — ${l2.type === 'loan' ? 'Loan Given' : 'Repayment'}${l2.method ? ' (' + escapeHtml(l2.method) + ')' : ''}</div><div class="sub">${fmtDate(l2.date)} ${l2.note ? '· ' + escapeHtml(l2.note) : ''}</div></div><strong>${l2.type === 'payment' ? '-' : '+'}${money(l2.amount)}</strong></div>`).join('')}
     <button class="btn secondary block" style="margin-top:10px" id="ll-close">Close</button>
   `);
   document.getElementById('ll-close').onclick = closeModal;
@@ -1381,12 +1622,37 @@ function renderReports() {
       <div class="card"><h3>Stock</h3><p class="sub">Current product stock and value</p><button class="btn small" id="rep-stock">Export CSV</button></div>
       <div class="card"><h3>Customer Dues</h3><p class="sub">Outstanding balances</p><button class="btn small" id="rep-dues">Export CSV</button></div>
       <div class="card"><h3>Loans</h3><p class="sub">Lender balances</p><button class="btn small" id="rep-loans">Export CSV</button></div>
+      <div class="card">
+        <h3>Net Profit</h3>
+        <p class="sub">Sale price − cost price, across all bill line items in the period</p>
+        <div class="row">
+          <div class="field"><label>From</label><input type="date" id="rep-np-from" value="${todayISO().slice(0, 8)}01"></div>
+          <div class="field"><label>To</label><input type="date" id="rep-np-to" value="${todayISO()}"></div>
+        </div>
+        <button class="btn small" id="rep-netprofit">Export CSV</button>
+      </div>
     </div>
   `;
   document.getElementById('rep-sales').onclick = () => {
     const rows = [['Number', 'Type', 'Date', 'Time', 'Customer', 'Total', 'Payment', 'Paid', 'Balance Due', 'By', 'Source']];
-    STATE.bills.forEach((b) => rows.push([b.number, b.type, b.date, b.time, b.customerName, b.total, b.paymentType, b.paid, b.balanceDue, b.by, b.source]));
+    STATE.bills.filter((b) => b.type !== 'quote').forEach((b) => rows.push([b.number, b.type, b.date, b.time, b.customerName, b.total, b.paymentType, b.paid, b.balanceDue, b.by, b.source]));
     downloadCsv(rows, 'sales.csv');
+  };
+  document.getElementById('rep-netprofit').onclick = () => {
+    const from = document.getElementById('rep-np-from').value;
+    const to = document.getElementById('rep-np-to').value;
+    const bills = STATE.bills.filter((b) => b.type !== 'quote' && (!from || b.date >= from) && (!to || b.date <= to));
+    const rows = [['Number', 'Date', 'Customer', 'Sale Total', 'Cost Total', 'Net Profit']];
+    let grandProfit = 0;
+    bills.forEach((b) => {
+      const saleTotal = (b.items || []).reduce((s, it) => s + it.price * it.qty, 0);
+      const costTotal = (b.items || []).reduce((s, it) => s + it.cost * it.qty, 0);
+      const profit = saleTotal - costTotal;
+      grandProfit += profit;
+      rows.push([b.number, b.date, b.customerName, saleTotal, costTotal, profit]);
+    });
+    rows.push(['', '', '', '', 'TOTAL', grandProfit]);
+    downloadCsv(rows, `net-profit-${from || 'all'}_to_${to || 'all'}.csv`);
   };
   document.getElementById('rep-stock').onclick = () => {
     const rows = [['Name', 'Category', 'Brand', 'Cost Price', 'Selling Price', 'Stock', 'Stock Value']];
@@ -1454,6 +1720,13 @@ function renderSettings() {
     </div>
 
     <div class="card" style="margin-top:14px">
+      <h3>Billing</h3>
+      <div class="field"><label>Starting bill number</label><input type="number" min="1" id="st-startbill" value="${s.startingBillNumber || 1}"></div>
+      <p class="sub" style="margin-top:-6px">Sets what number new invoices start counting from — use this to continue from an existing paper bill book instead of starting at 0001. Only affects new invoices going forward.</p>
+      <button class="btn small" id="st-save-startbill">Save</button>
+    </div>
+
+    <div class="card" style="margin-top:14px">
       <h3>Change PIN (${STATE.user})</h3>
       <div class="field"><label>New PIN</label><input type="password" id="st-newpin" maxlength="8"></div>
       <button class="btn small" id="st-savepin">Save PIN</button>
@@ -1474,6 +1747,12 @@ function renderSettings() {
       bankName: document.getElementById('st-bankname').value.trim(),
       branch: document.getElementById('st-branch').value.trim()
     };
+    await saveKey('settings');
+    toast('Saved');
+  };
+  document.getElementById('st-save-startbill').onclick = async () => {
+    const val = parseInt(document.getElementById('st-startbill').value, 10);
+    s.startingBillNumber = (val && val > 0) ? val : 1;
     await saveKey('settings');
     toast('Saved');
   };

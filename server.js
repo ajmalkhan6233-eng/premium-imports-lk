@@ -9,8 +9,8 @@ const TMP_FILE = path.join(__dirname, 'data.json.tmp');
 const BACKUP_DIR = path.join(__dirname, 'backups');
 const SECRETS_FILE = path.join(__dirname, 'secrets.json');
 
-// Vision-capable model used for the optional GRN photo-scan feature (4A).
-// Change here if a newer vision model should be used instead.
+// Vision-capable model used for the optional photo-scan features: GRN scan (4A)
+// and Sell-screen "Scan Old Bill". Change here if a newer vision model should be used instead.
 const GRN_SCAN_MODEL = 'claude-sonnet-5';
 
 function defaultData() {
@@ -21,6 +21,7 @@ function defaultData() {
       bankDetails: { accountName: '', accountNumber: '', bankName: '', branch: '' },
       categories: ['Chocolate', 'Wash Items', 'Other'],
       pins: { AJMAL: '1234', NUSHRA: '1234' },
+      startingBillNumber: 1,
       logo: null
     },
     products: [],
@@ -158,6 +159,69 @@ app.post('/api/grn-scan', async (req, res) => {
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
             { type: 'text', text: GRN_SCAN_PROMPT }
+          ]
+        }]
+      })
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(502).json({ error: 'anthropic_error', message: errText.slice(0, 500) });
+    }
+    const data = await response.json();
+    const textBlock = (data.content || []).find((c) => c.type === 'text');
+    const raw = textBlock ? textBlock.text : '[]';
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    let lines = [];
+    try {
+      lines = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+    } catch (e) {
+      return res.status(502).json({ error: 'parse_error', message: 'Could not parse the model response as JSON.' });
+    }
+    res.json({ ok: true, lines });
+  } catch (e) {
+    res.status(502).json({ error: 'request_failed', message: e.message });
+  }
+});
+
+const BILL_SCAN_PROMPT = `You are reading a photo of an existing paper sales bill from a small import/retail shop (handwritten or printed). List every distinct product line item on it.
+
+Respond with ONLY a JSON array, no other text, no markdown fences. Each element must have exactly these fields:
+[{"name": string, "quantity": number|null, "price": number|null}]
+
+Rules:
+- "name" should always be your best reading of the product name/description, even if imperfect.
+- "price" is the sale price per unit shown on the bill, not a cost price.
+- If you cannot confidently read a quantity or a price for a line, set that field to null. Do NOT guess a number you can't actually read.
+- If nothing readable is found, respond with an empty array: []`;
+
+app.post('/api/bill-scan', async (req, res) => {
+  const secrets = loadSecrets();
+  if (!secrets.anthropicApiKey) {
+    return res.status(400).json({
+      error: 'not_configured',
+      message: `Photo scan needs an Anthropic API key first. Add it to ${SECRETS_FILE} (the "anthropicApiKey" field), then restart the server.`
+    });
+  }
+  const { imageBase64, mediaType } = req.body || {};
+  if (!imageBase64) {
+    return res.status(400).json({ error: 'bad_request', message: 'Missing imageBase64' });
+  }
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': secrets.anthropicApiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: GRN_SCAN_MODEL,
+        max_tokens: 1500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+            { type: 'text', text: BILL_SCAN_PROMPT }
           ]
         }]
       })
