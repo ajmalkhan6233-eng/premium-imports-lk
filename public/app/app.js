@@ -2,6 +2,7 @@
 
 const STATE = {
   user: null,
+  role: null,
   settings: null,
   products: [],
   customers: [],
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
 ];
 const MOBILE_PRIMARY = ['sell', 'home', 'products', 'customers'];
 const MOBILE_MORE = ['grn', 'vendors', 'loans', 'reports', 'settings'];
+const ADMIN_ONLY_TABS = ['reports', 'settings'];
 
 /* ---------------- API helpers ---------------- */
 async function apiGet(key) {
@@ -115,22 +117,33 @@ async function boot() {
   }
   document.getElementById('loginShopName').textContent = STATE.settings.shopName || 'Premium Imports LK';
   const savedUser = localStorage.getItem('pilk_user');
-  if (savedUser && STATE.settings.pins && STATE.settings.pins[savedUser] !== undefined) {
+  if (savedUser && findUser(savedUser)) {
     STATE.user = savedUser;
+    STATE.role = findUser(savedUser).role;
     showApp();
   } else {
     showLogin();
   }
 }
 
+function findUser(name) {
+  return (STATE.settings.users || []).find((u) => u.name === name);
+}
+function isAdmin() {
+  return STATE.role === 'admin';
+}
+
 function showLogin() {
   document.getElementById('loginScreen').classList.remove('hidden');
   document.getElementById('appShell').classList.add('hidden');
   let selectedUser = null;
-  document.querySelectorAll('.user-btn').forEach((btn) => {
-    btn.classList.remove('active');
+  const picker = document.getElementById('userPicker');
+  picker.innerHTML = (STATE.settings.users || []).map((u) =>
+    `<button class="user-btn" data-user="${escapeHtml(u.name)}">${escapeHtml(u.name)}</button>`
+  ).join('');
+  picker.querySelectorAll('.user-btn').forEach((btn) => {
     btn.onclick = () => {
-      document.querySelectorAll('.user-btn').forEach((b) => b.classList.remove('active'));
+      picker.querySelectorAll('.user-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       selectedUser = btn.dataset.user;
       document.getElementById('loginError').textContent = '';
@@ -144,11 +157,13 @@ function showLogin() {
       document.getElementById('loginError').textContent = 'Pick a user first.';
       return;
     }
-    if (STATE.settings.pins[selectedUser] !== pin) {
+    const u = findUser(selectedUser);
+    if (!u || u.pin !== pin) {
       document.getElementById('loginError').textContent = 'Wrong PIN.';
       return;
     }
     STATE.user = selectedUser;
+    STATE.role = u.role;
     localStorage.setItem('pilk_user', selectedUser);
     showApp();
   };
@@ -156,6 +171,7 @@ function showLogin() {
 
 function logout() {
   STATE.user = null;
+  STATE.role = null;
   localStorage.removeItem('pilk_user');
   showLogin();
 }
@@ -164,7 +180,7 @@ function showApp() {
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
   document.getElementById('sidebarBrand').textContent = STATE.settings.shopName || 'Premium Imports LK';
-  document.getElementById('sidebarUser').textContent = STATE.user;
+  document.getElementById('sidebarUser').textContent = `${STATE.user} (${isAdmin() ? 'Admin' : 'Staff'})`;
   document.getElementById('logoutLinkSidebar').onclick = (e) => { e.preventDefault(); logout(); };
   renderNav();
   goTab('sell');
@@ -188,8 +204,9 @@ function startLiveClock() {
 
 /* ---------------- Nav ---------------- */
 function renderNav() {
+  const visibleNav = NAV_ITEMS.filter((item) => isAdmin() || !ADMIN_ONLY_TABS.includes(item.id));
   const sidebarNav = document.getElementById('sidebarNav');
-  sidebarNav.innerHTML = NAV_ITEMS.map((item) => navItemHtml(item)).join('');
+  sidebarNav.innerHTML = visibleNav.map((item) => navItemHtml(item)).join('');
   sidebarNav.querySelectorAll('.nav-item').forEach((el) => {
     el.onclick = () => goTab(el.dataset.tab);
   });
@@ -207,9 +224,10 @@ function navItemHtml(item) {
   return `<div class="nav-item" data-tab="${item.id}"><span class="icon">${item.icon}</span><span>${item.label}</span></div>`;
 }
 function showMoreSheet() {
+  const visibleMore = MOBILE_MORE.filter((id) => isAdmin() || !ADMIN_ONLY_TABS.includes(id));
   openModal(`
     <h3>More</h3>
-    ${MOBILE_MORE.map((id) => {
+    ${visibleMore.map((id) => {
       const item = NAV_ITEMS.find((n) => n.id === id);
       return `<div class="list-row" data-tab="${item.id}"><span>${item.icon} ${item.label}</span><span>&rsaquo;</span></div>`;
     }).join('')}
@@ -219,6 +237,10 @@ function showMoreSheet() {
   });
 }
 function goTab(tab) {
+  if (ADMIN_ONLY_TABS.includes(tab) && !isAdmin()) {
+    toast('Staff accounts cannot open this screen');
+    tab = 'sell';
+  }
   STATE.activeTab = tab;
   document.querySelectorAll('.nav-item[data-tab]').forEach((el) => {
     el.classList.toggle('active', el.dataset.tab === tab);
@@ -398,7 +420,7 @@ function renderProducts() {
   const list = STATE.products.filter((p) => productFilter === 'All' || p.category === productFilter);
   c.innerHTML = `
     <div class="pill-filters">${cats.map((cat) => `<button data-cat="${escapeHtml(cat)}" class="${cat === productFilter ? 'active' : ''}">${escapeHtml(cat)}</button>`).join('')}</div>
-    <button class="btn" id="addProductBtn">+ Add Product</button>
+    ${isAdmin() ? '<button class="btn" id="addProductBtn">+ Add Product</button>' : '<p class="sub">View only — ask an Admin to add or edit products.</p>'}
     <div class="grid" style="margin-top:14px">
       ${list.length === 0 ? '<div class="empty-state">No products yet.</div>' : list.map(productCardHtml).join('')}
     </div>
@@ -406,10 +428,14 @@ function renderProducts() {
   c.querySelectorAll('.pill-filters button').forEach((b) => {
     b.onclick = () => { productFilter = b.dataset.cat; renderProducts(); };
   });
-  document.getElementById('addProductBtn').onclick = () => openProductForm(null);
-  c.querySelectorAll('.product-card').forEach((el) => {
-    el.onclick = () => openProductForm(el.dataset.id);
-  });
+  if (isAdmin()) {
+    document.getElementById('addProductBtn').onclick = () => openProductForm(null);
+    c.querySelectorAll('.product-card').forEach((el) => {
+      el.onclick = () => openProductForm(el.dataset.id);
+    });
+  } else {
+    c.querySelectorAll('.product-card').forEach((el) => { el.style.cursor = 'default'; });
+  }
 }
 function productCardHtml(p) {
   const margin = p.sellingPrice ? (((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100).toFixed(0) : '—';
@@ -1337,11 +1363,11 @@ function openCustomerForm(id) {
     <div class="modal-actions">
       <button class="btn secondary" id="cf-cancel">Cancel</button>
       <button class="btn" id="cf-save">Save</button>
-      ${cu ? '<button class="btn danger" id="cf-delete">Delete</button>' : ''}
+      ${cu && isAdmin() ? '<button class="btn danger" id="cf-delete">Delete</button>' : ''}
     </div>
   `);
   document.getElementById('cf-cancel').onclick = closeModal;
-  if (cu) document.getElementById('cf-delete').onclick = () => {
+  if (cu && isAdmin()) document.getElementById('cf-delete').onclick = () => {
     if (!confirm(`Delete ${cu.name}? This cannot be undone.`)) return;
     STATE.customers = STATE.customers.filter((x) => x.id !== cu.id);
     saveKey('customers').then(() => { closeModal(); renderCustomers(); toast('Customer deleted'); });
@@ -1366,7 +1392,7 @@ function openCustomerLedger(id) {
     <h3>${escapeHtml(cu.name)}</h3>
     <div class="sub">${escapeHtml(cu.phone || '')} · ${escapeHtml(cu.address || '')}</div>
     <div class="card" style="margin:10px 0;display:flex;justify-content:space-between"><strong>Dues</strong><strong>${money(cu.dues)}</strong></div>
-    <button class="btn small" id="cl-edit">Edit</button>
+    ${isAdmin() ? '<button class="btn small" id="cl-edit">Edit</button>' : ''}
     <button class="btn small" id="cl-pay">Record Payment</button>
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
@@ -1374,7 +1400,7 @@ function openCustomerLedger(id) {
     <button class="btn secondary block" style="margin-top:10px" id="cl-close">Close</button>
   `);
   document.getElementById('cl-close').onclick = closeModal;
-  document.getElementById('cl-edit').onclick = () => openCustomerForm(id);
+  if (isAdmin()) document.getElementById('cl-edit').onclick = () => openCustomerForm(id);
   document.getElementById('cl-pay').onclick = () => openCustomerPaymentForm(id);
 }
 function labelForLedgerType(t) {
@@ -1438,11 +1464,11 @@ function openVendorForm(id) {
     <div class="modal-actions">
       <button class="btn secondary" id="vf-cancel">Cancel</button>
       <button class="btn" id="vf-save">Save</button>
-      ${v ? '<button class="btn danger" id="vf-delete">Delete</button>' : ''}
+      ${v && isAdmin() ? '<button class="btn danger" id="vf-delete">Delete</button>' : ''}
     </div>
   `);
   document.getElementById('vf-cancel').onclick = closeModal;
-  if (v) document.getElementById('vf-delete').onclick = () => {
+  if (v && isAdmin()) document.getElementById('vf-delete').onclick = () => {
     if (!confirm(`Delete ${v.name}? This cannot be undone.`)) return;
     STATE.vendors = STATE.vendors.filter((x) => x.id !== v.id);
     saveKey('vendors').then(() => { closeModal(); renderVendors(); toast('Vendor deleted'); });
@@ -1471,7 +1497,7 @@ function openVendorLedger(id) {
       <div class="card"><div class="label">Paid</div><div class="value">${money(v.paid)}</div></div>
       <div class="card"><div class="label">Balance</div><div class="value">${money(v.balance)}</div></div>
     </div>
-    <button class="btn small" id="vl-edit">Edit</button>
+    ${isAdmin() ? '<button class="btn small" id="vl-edit">Edit</button>' : ''}
     <button class="btn small" id="vl-pay">Record Payment</button>
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
@@ -1479,7 +1505,7 @@ function openVendorLedger(id) {
     <button class="btn secondary block" style="margin-top:10px" id="vl-close">Close</button>
   `);
   document.getElementById('vl-close').onclick = closeModal;
-  document.getElementById('vl-edit').onclick = () => openVendorForm(id);
+  if (isAdmin()) document.getElementById('vl-edit').onclick = () => openVendorForm(id);
   document.getElementById('vl-pay').onclick = () => openVendorPaymentForm(id);
 }
 function openVendorPaymentForm(id) {
@@ -1549,11 +1575,11 @@ function openLenderForm(id, onSaved) {
     <div class="modal-actions">
       <button class="btn secondary" id="lf-cancel">Cancel</button>
       <button class="btn" id="lf-save">Save</button>
-      ${l ? '<button class="btn danger" id="lf-delete">Delete</button>' : ''}
+      ${l && isAdmin() ? '<button class="btn danger" id="lf-delete">Delete</button>' : ''}
     </div>
   `);
   document.getElementById('lf-cancel').onclick = closeModal;
-  if (l) document.getElementById('lf-delete').onclick = () => {
+  if (l && isAdmin()) document.getElementById('lf-delete').onclick = () => {
     if (!confirm(`Delete ${l.name}? This cannot be undone.`)) return;
     STATE.lenders = STATE.lenders.filter((x) => x.id !== l.id);
     saveKey('lenders').then(() => { closeModal(); renderLoans(); toast('Lender deleted'); });
@@ -1623,7 +1649,7 @@ function openLenderLedger(id) {
       <div class="card"><div class="label">Repaid</div><div class="value">${money(l.repaid)}</div></div>
       <div class="card"><div class="label">Balance</div><div class="value">${money(l.balance)}</div></div>
     </div>
-    <button class="btn small" id="ll-edit">Edit</button>
+    ${isAdmin() ? '<button class="btn small" id="ll-edit">Edit</button>' : ''}
     <button class="btn small" id="ll-pay">Record Payment</button>
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
@@ -1631,7 +1657,7 @@ function openLenderLedger(id) {
     <button class="btn secondary block" style="margin-top:10px" id="ll-close">Close</button>
   `);
   document.getElementById('ll-close').onclick = closeModal;
-  document.getElementById('ll-edit').onclick = () => openLenderForm(id);
+  if (isAdmin()) document.getElementById('ll-edit').onclick = () => openLenderForm(id);
   document.getElementById('ll-pay').onclick = () => openLoanPaymentForm(id);
 }
 function openLoanPaymentForm(id) {
@@ -1786,6 +1812,30 @@ function renderSettings() {
       <div class="field"><label>New PIN</label><input type="password" id="st-newpin" maxlength="8"></div>
       <button class="btn small" id="st-savepin">Save PIN</button>
     </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>Manage Users</h3>
+      <p class="sub" style="margin-top:-6px">AJMAL is the one Admin account and can't be removed here. Staff can use Sell, GRN, and Customers/Vendors/Loans, but can't edit or delete existing records, and can't open Settings or Reports.</p>
+      <div id="st-user-list">
+        ${(s.users || []).map((u, idx) => `
+          <div class="list-row" style="cursor:default">
+            <div><div class="title">${escapeHtml(u.name)}</div><div class="sub">${u.role === 'admin' ? 'Admin' : 'Staff'}</div></div>
+            ${u.role === 'admin' ? '' : `
+              <div style="display:flex;align-items:center;gap:8px">
+                <input placeholder="New PIN" maxlength="8" style="width:100px;padding:6px 8px;border:1px solid var(--line);border-radius:8px" data-reset-pin="${idx}">
+                <button class="btn small secondary" data-reset-pin-btn="${idx}">Reset PIN</button>
+                <button class="btn small danger" data-remove-user="${idx}">Remove</button>
+              </div>
+            `}
+          </div>
+        `).join('')}
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="field"><input id="st-newuser-name" placeholder="Staff name"></div>
+        <div class="field"><input id="st-newuser-pin" placeholder="PIN" maxlength="8"></div>
+      </div>
+      <button class="btn small" id="st-addstaff">+ Add Staff</button>
+    </div>
   `;
 
   document.getElementById('st-save-shop').onclick = async () => {
@@ -1843,10 +1893,44 @@ function renderSettings() {
   document.getElementById('st-savepin').onclick = async () => {
     const val = document.getElementById('st-newpin').value.trim();
     if (!val) { toast('Enter a PIN'); return; }
-    s.pins[STATE.user] = val;
+    findUser(STATE.user).pin = val;
     await saveKey('settings');
     toast('PIN updated');
   };
+  document.getElementById('st-addstaff').onclick = async () => {
+    const name = document.getElementById('st-newuser-name').value.trim().toUpperCase();
+    const pin = document.getElementById('st-newuser-pin').value.trim();
+    if (!name) { toast('Enter a name'); return; }
+    if (!pin) { toast('Enter a PIN'); return; }
+    if (findUser(name)) { toast('A user with that name already exists'); return; }
+    s.users.push({ name, pin, role: 'staff' });
+    await saveKey('settings');
+    renderSettings();
+    toast('Staff added');
+  };
+  c.querySelectorAll('[data-reset-pin-btn]').forEach((btn) => {
+    btn.onclick = async () => {
+      const idx = parseInt(btn.dataset.resetPinBtn, 10);
+      const input = c.querySelector(`[data-reset-pin="${idx}"]`);
+      const val = input.value.trim();
+      if (!val) { toast('Enter a new PIN'); return; }
+      s.users[idx].pin = val;
+      await saveKey('settings');
+      renderSettings();
+      toast('PIN reset');
+    };
+  });
+  c.querySelectorAll('[data-remove-user]').forEach((btn) => {
+    btn.onclick = async () => {
+      const idx = parseInt(btn.dataset.removeUser, 10);
+      const u = s.users[idx];
+      if (!confirm(`Remove staff account "${u.name}"?`)) return;
+      s.users.splice(idx, 1);
+      await saveKey('settings');
+      renderSettings();
+      toast('Staff removed');
+    };
+  });
 }
 
 boot();

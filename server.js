@@ -20,7 +20,10 @@ function defaultData() {
       whatsappNumber: '94771226621',
       bankDetails: { accountName: '', accountNumber: '', bankName: '', branch: '' },
       categories: ['Chocolate', 'Wash Items', 'Other'],
-      pins: { AJMAL: '1234', NUSHRA: '1234' },
+      users: [
+        { name: 'AJMAL', pin: '1234', role: 'admin' },
+        { name: 'NUSHRA', pin: '1234', role: 'staff' }
+      ],
       startingBillNumber: 1,
       logo: null
     },
@@ -34,6 +37,22 @@ function defaultData() {
   };
 }
 
+// One-time migration: older data files stored logins as settings.pins
+// ({ NAME: pin }) with no roles. Convert to settings.users, treating
+// AJMAL as the (only) admin and everyone else as staff.
+function migrateUsers(settings) {
+  if (settings.users && settings.users.length) return settings;
+  if (settings.pins) {
+    settings.users = Object.keys(settings.pins).map((name) => ({
+      name, pin: settings.pins[name], role: name === 'AJMAL' ? 'admin' : 'staff'
+    }));
+    delete settings.pins;
+  } else {
+    settings.users = defaultData().settings.users;
+  }
+  return settings;
+}
+
 function loadData() {
   if (!fs.existsSync(DATA_FILE)) {
     const fresh = defaultData();
@@ -42,7 +61,10 @@ function loadData() {
   }
   const raw = fs.readFileSync(DATA_FILE, 'utf8');
   const parsed = JSON.parse(raw);
+  const hadOldPins = !!(parsed.settings && parsed.settings.pins);
   const merged = Object.assign(defaultData(), parsed);
+  merged.settings = migrateUsers(merged.settings);
+  if (hadOldPins) fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2));
   return merged;
 }
 
