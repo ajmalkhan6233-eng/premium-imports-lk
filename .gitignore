@@ -3,3 +3,4 @@ data.json
 data.json.tmp
 backups/
 *.log
+secrets.json

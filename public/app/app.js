@@ -14,7 +14,8 @@ const STATE = {
   sellCart: [],
   sellType: 'bill',
   sellPayment: 'cash',
-  sellCustomerId: null
+  sellCustomerId: null,
+  secretsStatus: null
 };
 
 const KEYS = ['settings', 'products', 'customers', 'vendors', 'lenders', 'bills', 'grns', 'orders'];
@@ -473,7 +474,8 @@ function openProductForm(id) {
 /* ================= GRN ================= */
 let grnDraft = null;
 function renderGRN() {
-  if (!grnDraft) grnDraft = { vendorId: null, vendorName: '', items: [] };
+  if (!grnDraft) grnDraft = { vendorId: null, vendorName: '', items: [], aiSuggestions: [] };
+  if (!grnDraft.aiSuggestions) grnDraft.aiSuggestions = [];
   const c = document.getElementById('pageContent');
   const total = grnDraft.items.reduce((s, it) => s + it.qty * it.cost, 0);
   c.innerHTML = `
@@ -486,7 +488,27 @@ function renderGRN() {
         </select>
       </div>
     </div>
-    <div class="section-title"><h3>Items</h3><button class="btn small" id="grn-add-item">+ Add Line</button></div>
+    <div class="section-title"><h3>Items</h3>
+      <div style="display:flex;gap:8px">
+        <button class="btn small secondary" id="grn-scan-photo">📷 Scan Photo</button>
+        <button class="btn small" id="grn-add-item">+ Add Line</button>
+      </div>
+    </div>
+    <input type="file" accept="image/*" capture="environment" id="grn-scan-input" class="hidden">
+    ${grnDraft.aiSuggestions.length === 0 ? '' : `
+      <div class="section-title"><h3 style="color:var(--gold-dark)">AI suggested — check before saving</h3></div>
+      ${grnDraft.aiSuggestions.map((s, idx) => `
+        <div class="list-row" data-ai-review="${idx}" style="border-color:var(--gold)">
+          <div><div class="title">${escapeHtml(s.name || '(unreadable name)')}</div>
+            <div class="sub">${s.quantity === null || s.quantity === undefined ? 'Qty: ?' : 'Qty: ' + s.quantity} · ${s.costPrice === null || s.costPrice === undefined ? 'Cost: ?' : 'Cost: ' + money(s.costPrice)}</div></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn small" data-ai-add="${idx}">Review & Add</button>
+            <button class="btn small secondary" data-ai-discard="${idx}">Discard</button>
+          </div>
+        </div>
+      `).join('')}
+    `}
+    <div class="section-title"><h3>Confirmed Lines</h3></div>
     ${grnDraft.items.length === 0 ? '<div class="empty-state">No items added yet.</div>' :
       grnDraft.items.map((it, idx) => `
         <div class="list-row"><div><div class="title">${escapeHtml(it.name)}</div><div class="sub">${it.qty} × ${money(it.cost)}</div></div>
@@ -503,11 +525,124 @@ function renderGRN() {
     grnDraft.vendorName = v ? v.name : '';
   };
   document.getElementById('grn-add-item').onclick = openGrnLineForm;
+  document.getElementById('grn-scan-photo').onclick = startGrnScan;
+  document.getElementById('grn-scan-input').onchange = handleGrnScanFile;
   c.querySelectorAll('[data-idx]').forEach((btn) => {
     btn.onclick = () => { grnDraft.items.splice(parseInt(btn.dataset.idx, 10), 1); renderGRN(); };
   });
+  c.querySelectorAll('[data-ai-add]').forEach((btn) => {
+    btn.onclick = () => reviewAiSuggestion(parseInt(btn.dataset.aiAdd, 10));
+  });
+  c.querySelectorAll('[data-ai-discard]').forEach((btn) => {
+    btn.onclick = () => { grnDraft.aiSuggestions.splice(parseInt(btn.dataset.aiDiscard, 10), 1); renderGRN(); };
+  });
   const saveBtn = document.getElementById('grn-save');
   if (saveBtn) saveBtn.onclick = saveGrn;
+}
+
+function showScanSetupModal() {
+  openModal(`
+    <h3>Photo scan needs setup</h3>
+    <p>This feature reads a photo of an invoice or the products themselves and drafts GRN lines for you to check. It needs an Anthropic API key added first.</p>
+    <p style="color:var(--ink-soft);font-size:0.9rem">Ask whoever set up this computer to open <code>secrets.json</code> in the project folder, paste the key between the quotes for <code>"anthropicApiKey"</code>, then restart the server.</p>
+    <button class="btn secondary block" id="scan-setup-close">Close</button>
+  `);
+  document.getElementById('scan-setup-close').onclick = closeModal;
+}
+
+async function startGrnScan() {
+  if (STATE.secretsStatus === null) {
+    try {
+      const res = await fetch('/api/grn-scan/status');
+      const data = await res.json();
+      STATE.secretsStatus = { configured: !!data.configured };
+    } catch (e) {
+      STATE.secretsStatus = { configured: false };
+    }
+  }
+  if (!STATE.secretsStatus.configured) {
+    showScanSetupModal();
+    return;
+  }
+  document.getElementById('grn-scan-input').click();
+}
+
+function handleGrnScanFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  compressImage(file, 1024, async (dataUrl) => {
+    const base64 = dataUrl.split(',')[1];
+    toast('Scanning photo...');
+    try {
+      const res = await fetch('/api/grn-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mediaType: 'image/jpeg' })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'not_configured') {
+          STATE.secretsStatus = { configured: false };
+          showScanSetupModal();
+          return;
+        }
+        toast(data.message || 'Scan failed');
+        return;
+      }
+      if (!data.lines || data.lines.length === 0) {
+        toast('Could not read any products from that photo.');
+        return;
+      }
+      grnDraft.aiSuggestions = (grnDraft.aiSuggestions || []).concat(data.lines);
+      renderGRN();
+      toast(`Found ${data.lines.length} possible line(s) — review before saving`);
+    } catch (err) {
+      toast('Could not reach the server for scanning.');
+    } finally {
+      e.target.value = '';
+    }
+  });
+}
+
+function reviewAiSuggestion(idx) {
+  const s = grnDraft.aiSuggestions[idx];
+  openModal(`
+    <h3>Review AI Suggestion</h3>
+    <div class="field"><label>Product name</label><input id="ai-name" value="${escapeHtml(s.name || '')}"></div>
+    <div class="field"><label>Category</label>
+      <select id="ai-category">${STATE.settings.categories.map((c) => `<option>${escapeHtml(c)}</option>`).join('')}</select>
+    </div>
+    <div class="row">
+      <div class="field"><label>Cost Price</label><input type="number" step="0.01" id="ai-cost" value="${s.costPrice !== null && s.costPrice !== undefined ? s.costPrice : ''}"></div>
+      <div class="field"><label>Quantity</label><input type="number" id="ai-qty" value="${s.quantity !== null && s.quantity !== undefined ? s.quantity : 1}"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="ai-cancel">Cancel</button>
+      <button class="btn" id="ai-confirm">Add to GRN</button>
+    </div>
+  `);
+  document.getElementById('ai-cancel').onclick = closeModal;
+  document.getElementById('ai-confirm').onclick = async () => {
+    const name = document.getElementById('ai-name').value.trim();
+    if (!name) { toast('Name is required'); return; }
+    const category = document.getElementById('ai-category').value;
+    const cost = parseFloat(document.getElementById('ai-cost').value) || 0;
+    const qty = parseInt(document.getElementById('ai-qty').value, 10) || 1;
+    let product = STATE.products.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (!product) {
+      const now = new Date().toISOString();
+      product = {
+        id: uid('P'), name, category, brand: '', costPrice: cost, sellingPrice: 0, stock: 0, notes: '',
+        photo: null, priceHistory: [], createdAt: now, updatedAt: now
+      };
+      STATE.products.push(product);
+      await saveKey('products');
+    }
+    grnDraft.items.push({ productId: product.id, name: product.name, qty, cost });
+    grnDraft.aiSuggestions.splice(idx, 1);
+    closeModal();
+    renderGRN();
+  };
 }
 function openQuickAddVendor() {
   openModal(`

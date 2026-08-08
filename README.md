@@ -81,6 +81,34 @@ empty on purpose. Before using it day to day:
    `1234`.
 5. Add real products via **Products** or as you receive stock via **GRN**.
 
+## GRN photo scan (optional)
+
+The GRN screen has a "📷 Scan Photo" button that reads a photo of an
+invoice, packing slip, or the products themselves, and drafts line items
+for you to check — it never saves anything on its own, you still review
+and tap **Save GRN** yourself, same as typing lines in by hand.
+
+This feature costs a small amount per photo (roughly a few cents) and
+needs an Anthropic API key:
+
+1. Get a key from [console.anthropic.com](https://console.anthropic.com)
+   (requires adding billing there first).
+2. Open `secrets.json` in the project folder (it's created automatically
+   the first time the server runs) and paste the key between the quotes:
+   ```
+   { "anthropicApiKey": "your-key-here" }
+   ```
+3. Restart the server (`Ctrl+C` in the console window, then run
+   `start.bat` again, or `npm start`).
+
+`secrets.json` is never committed to git — it's in `.gitignore` alongside
+`data.json`, since it holds a real API key.
+
+Until a key is added, the "Scan Photo" button still shows but explains
+what's needed instead of failing — manual GRN entry (search-to-add, or
+"+ Add new product" inline) works exactly the same either way and isn't
+blocked by this.
+
 ## Notes
 
 - Everything runs from plain HTML/CSS/JS in `public/app` and

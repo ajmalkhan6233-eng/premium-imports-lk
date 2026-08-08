@@ -7,6 +7,11 @@ const PORT = process.env.PORT || 3005;
 const DATA_FILE = path.join(__dirname, 'data.json');
 const TMP_FILE = path.join(__dirname, 'data.json.tmp');
 const BACKUP_DIR = path.join(__dirname, 'backups');
+const SECRETS_FILE = path.join(__dirname, 'secrets.json');
+
+// Vision-capable model used for the optional GRN photo-scan feature (4A).
+// Change here if a newer vision model should be used instead.
+const GRN_SCAN_MODEL = 'claude-sonnet-5';
 
 function defaultData() {
   return {
@@ -40,7 +45,22 @@ function loadData() {
   return merged;
 }
 
+function loadSecrets() {
+  if (!fs.existsSync(SECRETS_FILE)) {
+    fs.writeFileSync(SECRETS_FILE, JSON.stringify({ anthropicApiKey: '' }, null, 2));
+    return { anthropicApiKey: '' };
+  }
+  try {
+    const raw = fs.readFileSync(SECRETS_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return { anthropicApiKey: parsed.anthropicApiKey || '' };
+  } catch (e) {
+    return { anthropicApiKey: '' };
+  }
+}
+
 let db = loadData();
+loadSecrets(); // ensures secrets.json exists with a blank key on first run
 let lastBackupDate = null;
 
 function todayStamp() {
@@ -93,6 +113,73 @@ app.put('/api/data/:key', (req, res) => {
   db[key] = req.body.value;
   saveData();
   res.json({ ok: true });
+});
+
+app.get('/api/grn-scan/status', (req, res) => {
+  const secrets = loadSecrets();
+  res.json({ configured: !!secrets.anthropicApiKey });
+});
+
+const GRN_SCAN_PROMPT = `You are reading a photo taken during goods receiving at a small import/retail shop (invoice, packing slip, or the products themselves). List every distinct product you can identify.
+
+Respond with ONLY a JSON array, no other text, no markdown fences. Each element must have exactly these fields:
+[{"name": string, "quantity": number|null, "costPrice": number|null}]
+
+Rules:
+- "name" should always be your best reading of the product name/description, even if imperfect.
+- If you cannot confidently read a quantity or a cost price for a line, set that field to null. Do NOT guess a number you can't actually read.
+- If nothing readable is found, respond with an empty array: []`;
+
+app.post('/api/grn-scan', async (req, res) => {
+  const secrets = loadSecrets();
+  if (!secrets.anthropicApiKey) {
+    return res.status(400).json({
+      error: 'not_configured',
+      message: `Photo scan needs an Anthropic API key first. Add it to ${SECRETS_FILE} (the "anthropicApiKey" field), then restart the server.`
+    });
+  }
+  const { imageBase64, mediaType } = req.body || {};
+  if (!imageBase64) {
+    return res.status(400).json({ error: 'bad_request', message: 'Missing imageBase64' });
+  }
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': secrets.anthropicApiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: GRN_SCAN_MODEL,
+        max_tokens: 1500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+            { type: 'text', text: GRN_SCAN_PROMPT }
+          ]
+        }]
+      })
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(502).json({ error: 'anthropic_error', message: errText.slice(0, 500) });
+    }
+    const data = await response.json();
+    const textBlock = (data.content || []).find((c) => c.type === 'text');
+    const raw = textBlock ? textBlock.text : '[]';
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    let lines = [];
+    try {
+      lines = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+    } catch (e) {
+      return res.status(502).json({ error: 'parse_error', message: 'Could not parse the model response as JSON.' });
+    }
+    res.json({ ok: true, lines });
+  } catch (e) {
+    res.status(502).json({ error: 'request_failed', message: e.message });
+  }
 });
 
 app.use('/lib', express.static(path.join(__dirname, 'public', 'lib')));
