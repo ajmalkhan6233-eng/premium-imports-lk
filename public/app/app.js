@@ -11,6 +11,7 @@ const STATE = {
   bills: [],
   grns: [],
   orders: [],
+  waConversations: [],
   activeTab: 'home',
   sellCart: [],
   sellType: 'bill',
@@ -18,10 +19,11 @@ const STATE = {
   sellCustomerId: null,
   sellDiscountType: 'fixed',
   sellDiscountValue: 0,
+  sellPaymentPlanIdx: 0,
   secretsStatus: null
 };
 
-const KEYS = ['settings', 'products', 'customers', 'vendors', 'lenders', 'bills', 'grns', 'orders'];
+const KEYS = ['settings', 'products', 'customers', 'vendors', 'lenders', 'bills', 'grns', 'orders', 'waConversations'];
 const LOW_STOCK_THRESHOLD = 5;
 
 const NAV_ITEMS = [
@@ -32,11 +34,12 @@ const NAV_ITEMS = [
   { id: 'customers', label: 'Customers', icon: '\u{1F465}' },
   { id: 'vendors', label: 'Vendors', icon: '\u{1F69A}' },
   { id: 'loans', label: 'Loans', icon: '\u{1F4B0}' },
+  { id: 'messages', label: 'Messages', icon: '\u{1F4AC}' },
   { id: 'reports', label: 'Reports', icon: '\u{1F4CA}' },
   { id: 'settings', label: 'Settings', icon: '\u{2699}\u{FE0F}' }
 ];
 const MOBILE_PRIMARY = ['sell', 'home', 'products', 'customers'];
-const MOBILE_MORE = ['grn', 'vendors', 'loans', 'reports', 'settings'];
+const MOBILE_MORE = ['grn', 'vendors', 'loans', 'messages', 'reports', 'settings'];
 const ADMIN_ONLY_TABS = ['reports', 'settings'];
 
 /* ---------------- API helpers ---------------- */
@@ -66,6 +69,11 @@ function money(n) {
 }
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+function addDaysISO(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + (parseInt(days, 10) || 0));
+  return d.toISOString().slice(0, 10);
 }
 function nowTimeStr() {
   return new Date().toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' });
@@ -254,7 +262,7 @@ function goTab(tab) {
   const renderers = {
     home: renderHome, products: renderProducts, sell: renderSell, grn: renderGRN,
     customers: renderCustomers, vendors: renderVendors, loans: renderLoans,
-    reports: renderReports, settings: renderSettings
+    messages: renderMessages, reports: renderReports, settings: renderSettings
   };
   renderers[tab]();
 }

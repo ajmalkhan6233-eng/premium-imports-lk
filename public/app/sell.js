@@ -103,6 +103,13 @@ function renderSell() {
           <button data-pay="credit" class="${STATE.sellPayment === 'credit' ? 'active' : ''}">Credit</button>
         </div>
         ${STATE.sellPayment === 'bank' ? `<div class="qr-box"><div id="qrTarget"></div><div style="margin-top:8px;font-size:0.85rem;color:var(--ink-soft)">${bankDetailsText()}</div></div>` : ''}
+        ${STATE.sellPayment === 'credit' ? `
+          <div class="field"><label>Payment Plan</label>
+            <select id="sell-payment-plan">
+              ${(STATE.settings.paymentPlans || []).map((pl, idx) => `<option value="${idx}" ${STATE.sellPaymentPlanIdx === idx ? 'selected' : ''}>${escapeHtml(pl.name)} (${pl.days === 0 ? 'due today' : `due in ${pl.days}d`})</option>`).join('')}
+            </select>
+          </div>
+        ` : ''}
       `}
       ${discountAmount > 0 ? `
         <div style="display:flex;justify-content:space-between;margin-top:10px;color:var(--ink-soft)"><span>Subtotal</span><span>${money(subtotal)}</span></div>
@@ -137,6 +144,8 @@ function renderSell() {
     STATE.sellDiscountValue = parseFloat(e.target.value) || 0;
     renderSell();
   };
+  const planSelect = document.getElementById('sell-payment-plan');
+  if (planSelect) planSelect.onchange = (e) => { STATE.sellPaymentPlanIdx = parseInt(e.target.value, 10) || 0; };
   c.querySelectorAll('.pill-filters button').forEach((b) => {
     b.onclick = () => { sellCategoryFilter = b.dataset.cat; renderSell(); };
   });
@@ -345,6 +354,9 @@ async function completeSale() {
   if (!isQuote && STATE.sellPayment === 'credit' && !STATE.sellCustomerId) { toast('Select a customer for credit sales'); return; }
   const { subtotal, discountAmount, total } = computeSellTotals();
   const customer = STATE.sellCustomerId ? STATE.customers.find((x) => x.id === STATE.sellCustomerId) : null;
+  const isCredit = !isQuote && STATE.sellPayment === 'credit';
+  const plan = isCredit ? (STATE.settings.paymentPlans || [])[STATE.sellPaymentPlanIdx] : null;
+  const dueDate = plan ? addDaysISO(plan.days) : null;
   const bill = {
     id: uid('B'),
     number: isQuote ? nextNumber(STATE.bills.filter((b) => b.type === 'quote'), 'QUO') : nextBillNumber(),
@@ -357,6 +369,7 @@ async function completeSale() {
     paymentType: isQuote ? null : STATE.sellPayment,
     paid: isQuote ? 0 : (STATE.sellPayment === 'credit' ? 0 : total),
     balanceDue: isQuote ? 0 : (STATE.sellPayment === 'credit' ? total : 0),
+    paymentPlan: plan ? plan.name : null, dueDate,
     by: STATE.user, source: 'in-store'
   };
   STATE.bills.push(bill);
@@ -368,7 +381,7 @@ async function completeSale() {
     if (STATE.sellPayment === 'credit' && customer) {
       customer.dues = (customer.dues || 0) + total;
       customer.ledger = customer.ledger || [];
-      customer.ledger.push({ id: uid('L'), type: bill.type, date: bill.date, amount: total, balanceAfter: customer.dues, ref: bill.number, note: '', by: STATE.user });
+      customer.ledger.push({ id: uid('L'), type: bill.type, date: bill.date, amount: total, balanceAfter: customer.dues, ref: bill.number, note: '', dueDate, by: STATE.user });
     }
   }
   await Promise.all([
@@ -379,6 +392,7 @@ async function completeSale() {
   STATE.sellCart = [];
   STATE.sellCustomerId = null;
   STATE.sellDiscountValue = 0;
+  STATE.sellPaymentPlanIdx = 0;
   sellScanSuggestions = [];
   showReceipt(bill);
   renderSell();
@@ -415,7 +429,8 @@ function showReceipt(bill) {
     `*Total: ${money(bill.total)}*`,
     bill.paymentType ? `Payment: ${bill.paymentType}` : null,
     !bill.paymentType ? null : `Paid: ${money(bill.paid)}`,
-    (bill.balanceDue || 0) > 0 ? `Balance due: ${money(bill.balanceDue)}` : null
+    (bill.balanceDue || 0) > 0 ? `Balance due: ${money(bill.balanceDue)}` : null,
+    bill.dueDate ? `Due: ${fmtDate(bill.dueDate)} (${bill.paymentPlan})` : null
   ].filter(Boolean).join('\n');
   const waText = encodeURIComponent(`✨ *${shopName}* ✨\n${label} ${bill.number}\nDate: ${bill.date} ${bill.time}\n\n${lines}\n\n${summaryLines}${upsellText}\n\nThank you for shopping with us! 🙏`);
   const customer = bill.customerId ? STATE.customers.find((c) => c.id === bill.customerId) : null;
@@ -439,6 +454,7 @@ function showReceipt(bill) {
       <div style="display:flex;justify-content:space-between;margin-top:${discountAmount > 0 ? '0' : '10px'}"><strong>Total</strong><strong>${money(bill.total)}</strong></div>
       ${bill.paymentType ? `<div class="sub">Payment: ${bill.paymentType} · Paid: ${money(bill.paid)}</div>` : ''}
       ${(bill.balanceDue || 0) > 0 ? `<div class="sub">Balance due: ${money(bill.balanceDue)}</div>` : ''}
+      ${bill.dueDate ? `<div class="sub">Due: ${fmtDate(bill.dueDate)} (${escapeHtml(bill.paymentPlan)})</div>` : ''}
     </div>
     <div class="modal-actions">
       ${preferWhatsApp ? waBtn + printBtn : printBtn + waBtn}

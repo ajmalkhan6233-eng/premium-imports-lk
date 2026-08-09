@@ -25,7 +25,18 @@ function defaultData() {
         { name: 'NUSHRA', pin: '1234', role: 'staff' }
       ],
       startingBillNumber: 1,
-      logo: null
+      logo: null,
+      assistantName: 'Nushra',
+      deliveryZones: {
+        homeBase: 'Thihariya junction',
+        freeDeliveryMin: 2000,
+        zoneNotes: ''
+      },
+      paymentPlans: [
+        { name: 'Pay in full', days: 0 },
+        { name: '5 days', days: 5 },
+        { name: '1 week', days: 7 }
+      ]
     },
     products: [],
     customers: [],
@@ -33,7 +44,8 @@ function defaultData() {
     lenders: [],
     bills: [],
     grns: [],
-    orders: []
+    orders: [],
+    waConversations: []
   };
 }
 
@@ -53,6 +65,19 @@ function migrateUsers(settings) {
   return settings;
 }
 
+// Existing settings objects are a full replacement under Object.assign (it's
+// a shallow merge), so any settings field added after someone's data.json
+// was first created needs to be explicitly backfilled here or it silently
+// never appears for them.
+function backfillSettingsDefaults(settings) {
+  const d = defaultData().settings;
+  let changed = false;
+  if (settings.assistantName === undefined) { settings.assistantName = d.assistantName; changed = true; }
+  if (!settings.deliveryZones) { settings.deliveryZones = d.deliveryZones; changed = true; }
+  if (!settings.paymentPlans) { settings.paymentPlans = d.paymentPlans; changed = true; }
+  return changed;
+}
+
 function loadData() {
   if (!fs.existsSync(DATA_FILE)) {
     const fresh = defaultData();
@@ -64,7 +89,8 @@ function loadData() {
   const hadOldPins = !!(parsed.settings && parsed.settings.pins);
   const merged = Object.assign(defaultData(), parsed);
   merged.settings = migrateUsers(merged.settings);
-  if (hadOldPins) fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2));
+  const backfilled = backfillSettingsDefaults(merged.settings);
+  if (hadOldPins || backfilled) fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2));
   return merged;
 }
 

@@ -4,3 +4,4 @@ data.json.tmp
 backups/
 *.log
 secrets.json
+whatsapp-bridge/auth/
