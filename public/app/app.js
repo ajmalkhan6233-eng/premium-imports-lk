@@ -16,6 +16,8 @@ const STATE = {
   sellType: 'bill',
   sellPayment: 'cash',
   sellCustomerId: null,
+  sellDiscountType: 'fixed',
+  sellDiscountValue: 0,
   secretsStatus: null
 };
 

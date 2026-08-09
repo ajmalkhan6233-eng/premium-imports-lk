@@ -15,12 +15,21 @@ function renderOnlineOrdersBadge() {
 /* ================= SELL ================= */
 let sellCategoryFilter = 'All';
 let sellScanSuggestions = [];
+function computeSellTotals() {
+  const subtotal = STATE.sellCart.reduce((s, it) => s + it.qty * it.price, 0);
+  const rawDiscount = STATE.sellDiscountType === 'percent'
+    ? subtotal * ((parseFloat(STATE.sellDiscountValue) || 0) / 100)
+    : (parseFloat(STATE.sellDiscountValue) || 0);
+  const discountAmount = Math.max(0, Math.min(subtotal, rawDiscount));
+  const total = subtotal - discountAmount;
+  return { subtotal, discountAmount, total };
+}
 function renderSell() {
   const c = document.getElementById('pageContent');
   const cats = ['All', ...STATE.settings.categories];
   const list = STATE.products.filter((p) => (sellCategoryFilter === 'All' || p.category === sellCategoryFilter) && p.stock > 0);
   const customer = STATE.sellCustomerId ? STATE.customers.find((x) => x.id === STATE.sellCustomerId) : null;
-  const total = STATE.sellCart.reduce((s, it) => s + it.qty * it.price, 0);
+  const { subtotal, discountAmount, total } = computeSellTotals();
 
   c.innerHTML = `
     <div class="toggle-group">
@@ -78,6 +87,15 @@ function renderSell() {
           <option value="__new__">+ Add new customer</option>
         </select>
       </div>
+      <div class="field"><label>Discount</label>
+        <div style="display:flex;gap:8px">
+          <input type="number" min="0" step="0.01" id="sell-discount-value" value="${STATE.sellDiscountValue || ''}" placeholder="0" style="flex:1">
+          <div class="toggle-group" style="margin-bottom:0;width:150px">
+            <button data-disc="fixed" class="${STATE.sellDiscountType === 'fixed' ? 'active' : ''}">Rs.</button>
+            <button data-disc="percent" class="${STATE.sellDiscountType === 'percent' ? 'active' : ''}">%</button>
+          </div>
+        </div>
+      </div>
       ${STATE.sellType === 'quote' ? `<p class="sub">A quotation is a shareable price estimate — it does not deduct stock or record payment.</p>` : `
         <div class="toggle-group">
           <button data-pay="cash" class="${STATE.sellPayment === 'cash' ? 'active' : ''}">Cash</button>
@@ -86,13 +104,20 @@ function renderSell() {
         </div>
         ${STATE.sellPayment === 'bank' ? `<div class="qr-box"><div id="qrTarget"></div><div style="margin-top:8px;font-size:0.85rem;color:var(--ink-soft)">${bankDetailsText()}</div></div>` : ''}
       `}
+      ${discountAmount > 0 ? `
+        <div style="display:flex;justify-content:space-between;margin-top:10px;color:var(--ink-soft)"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+        <div style="display:flex;justify-content:space-between;color:var(--ink-soft)"><span>Discount</span><span>-${money(discountAmount)}</span></div>
+      ` : ''}
     </div>
     <div class="sell-total-spacer"></div>
   `;
 
   const totalBarHtml = `
     <div class="sell-total-bar">
-      <div class="sell-total-bar-amount"><span>Total</span><strong>${money(total)}</strong></div>
+      <div class="sell-total-bar-amount">
+        ${discountAmount > 0 ? `<span>Total (after -${money(discountAmount)} discount)</span>` : '<span>Total</span>'}
+        <strong>${money(total)}</strong>
+      </div>
       <button class="btn" id="sell-complete" ${STATE.sellCart.length === 0 ? 'disabled' : ''}>${STATE.sellType === 'quote' ? 'Generate Quotation' : 'Complete Sale'}</button>
     </div>`;
   document.getElementById('sellTotalBarRoot').innerHTML = totalBarHtml;
@@ -105,6 +130,13 @@ function renderSell() {
   c.querySelectorAll('.toggle-group button[data-pay]').forEach((b) => {
     b.onclick = () => { STATE.sellPayment = b.dataset.pay; renderSell(); };
   });
+  c.querySelectorAll('.toggle-group button[data-disc]').forEach((b) => {
+    b.onclick = () => { STATE.sellDiscountType = b.dataset.disc; renderSell(); };
+  });
+  document.getElementById('sell-discount-value').onchange = (e) => {
+    STATE.sellDiscountValue = parseFloat(e.target.value) || 0;
+    renderSell();
+  };
   c.querySelectorAll('.pill-filters button').forEach((b) => {
     b.onclick = () => { sellCategoryFilter = b.dataset.cat; renderSell(); };
   });
@@ -311,7 +343,7 @@ async function completeSale() {
   if (STATE.sellCart.length === 0) return;
   const isQuote = STATE.sellType === 'quote';
   if (!isQuote && STATE.sellPayment === 'credit' && !STATE.sellCustomerId) { toast('Select a customer for credit sales'); return; }
-  const total = STATE.sellCart.reduce((s, it) => s + it.qty * it.price, 0);
+  const { subtotal, discountAmount, total } = computeSellTotals();
   const customer = STATE.sellCustomerId ? STATE.customers.find((x) => x.id === STATE.sellCustomerId) : null;
   const bill = {
     id: uid('B'),
@@ -320,6 +352,7 @@ async function completeSale() {
     date: todayISO(), time: nowTimeStr(),
     customerId: customer ? customer.id : null, customerName: customer ? customer.name : 'Walk-in',
     items: STATE.sellCart.map((it) => ({ productId: it.productId, name: it.name, qty: it.qty, price: it.price, cost: it.cost })),
+    subtotal, discountType: STATE.sellDiscountType, discountValue: STATE.sellDiscountValue || 0, discountAmount,
     total,
     paymentType: isQuote ? null : STATE.sellPayment,
     paid: isQuote ? 0 : (STATE.sellPayment === 'credit' ? 0 : total),
@@ -345,6 +378,7 @@ async function completeSale() {
   ]);
   STATE.sellCart = [];
   STATE.sellCustomerId = null;
+  STATE.sellDiscountValue = 0;
   sellScanSuggestions = [];
   showReceipt(bill);
   renderSell();
@@ -370,12 +404,25 @@ function suggestUpsellProducts(bill) {
 function showReceipt(bill) {
   const shopName = STATE.settings.shopName || 'Premium Imports LK';
   const label = typeLabel(bill);
+  const subtotal = bill.subtotal !== undefined ? bill.subtotal : bill.total;
+  const discountAmount = bill.discountAmount || 0;
   const lines = bill.items.map((it) => `*${it.name}* x${it.qty} = ${money(it.qty * it.price)}`).join('\n');
   const upsells = bill.type === 'quote' ? [] : suggestUpsellProducts(bill);
   const upsellText = upsells.length ? `\n\n✨ *You might also like* ✨\n${upsells.map((p) => `⭐ ${p.name} — ${money(p.sellingPrice)}`).join('\n')}` : '';
-  const waText = encodeURIComponent(`✨ *${shopName}* ✨\n${label} ${bill.number}\nDate: ${bill.date} ${bill.time}\n\n${lines}\n\n*Total: ${money(bill.total)}*${bill.paymentType ? `\nPayment: ${bill.paymentType}` : ''}${upsellText}\n\nThank you for shopping with us! 🙏`);
+  const summaryLines = [
+    discountAmount > 0 ? `Subtotal: ${money(subtotal)}` : null,
+    discountAmount > 0 ? `Discount: -${money(discountAmount)}` : null,
+    `*Total: ${money(bill.total)}*`,
+    bill.paymentType ? `Payment: ${bill.paymentType}` : null,
+    !bill.paymentType ? null : `Paid: ${money(bill.paid)}`,
+    (bill.balanceDue || 0) > 0 ? `Balance due: ${money(bill.balanceDue)}` : null
+  ].filter(Boolean).join('\n');
+  const waText = encodeURIComponent(`✨ *${shopName}* ✨\n${label} ${bill.number}\nDate: ${bill.date} ${bill.time}\n\n${lines}\n\n${summaryLines}${upsellText}\n\nThank you for shopping with us! 🙏`);
   const customer = bill.customerId ? STATE.customers.find((c) => c.id === bill.customerId) : null;
   const waNumber = customer && customer.phone ? customer.phone.replace(/\D/g, '') : '';
+  const preferWhatsApp = !!waNumber;
+  const printBtn = `<button class="btn ${preferWhatsApp ? 'secondary' : ''}" id="rc-print">Print / Save PDF</button>`;
+  const waBtn = `<a class="btn ${preferWhatsApp ? '' : 'secondary'}" style="text-decoration:none" target="_blank" href="https://wa.me/${waNumber}?text=${waText}">Share on WhatsApp</a>`;
   openModal(`
     <div id="receiptPrintArea">
       <h3>${shopName}</h3>
@@ -385,12 +432,16 @@ function showReceipt(bill) {
         <tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
         ${bill.items.map((it) => `<tr><td>${escapeHtml(it.name)}</td><td>${it.qty}</td><td>${money(it.price)}</td><td>${money(it.qty * it.price)}</td></tr>`).join('')}
       </table>
-      <div style="display:flex;justify-content:space-between;margin-top:10px"><strong>Total</strong><strong>${money(bill.total)}</strong></div>
-      ${bill.paymentType ? `<div class="sub">Payment: ${bill.paymentType}</div>` : ''}
+      ${discountAmount > 0 ? `
+        <div style="display:flex;justify-content:space-between;margin-top:10px"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+        <div style="display:flex;justify-content:space-between"><span>Discount</span><span>-${money(discountAmount)}</span></div>
+      ` : ''}
+      <div style="display:flex;justify-content:space-between;margin-top:${discountAmount > 0 ? '0' : '10px'}"><strong>Total</strong><strong>${money(bill.total)}</strong></div>
+      ${bill.paymentType ? `<div class="sub">Payment: ${bill.paymentType} · Paid: ${money(bill.paid)}</div>` : ''}
+      ${(bill.balanceDue || 0) > 0 ? `<div class="sub">Balance due: ${money(bill.balanceDue)}</div>` : ''}
     </div>
     <div class="modal-actions">
-      <button class="btn secondary" id="rc-print">Print / Save PDF</button>
-      <a class="btn" style="text-decoration:none" target="_blank" href="https://wa.me/${waNumber}?text=${waText}">Share on WhatsApp</a>
+      ${preferWhatsApp ? waBtn + printBtn : printBtn + waBtn}
     </div>
     <button class="btn secondary block" style="margin-top:10px" id="rc-close">Close</button>
   `);

@@ -27,16 +27,18 @@ function renderReports() {
     const from = document.getElementById('rep-np-from').value;
     const to = document.getElementById('rep-np-to').value;
     const bills = STATE.bills.filter((b) => b.type !== 'quote' && (!from || b.date >= from) && (!to || b.date <= to));
-    const rows = [['Number', 'Date', 'Customer', 'Sale Total', 'Cost Total', 'Net Profit']];
+    const rows = [['Number', 'Date', 'Customer', 'Sale Subtotal', 'Discount', 'Sale Total', 'Cost Total', 'Net Profit']];
     let grandProfit = 0;
     bills.forEach((b) => {
-      const saleTotal = (b.items || []).reduce((s, it) => s + it.price * it.qty, 0);
+      const subtotal = (b.items || []).reduce((s, it) => s + it.price * it.qty, 0);
+      const discount = b.discountAmount || 0;
+      const saleTotal = subtotal - discount;
       const costTotal = (b.items || []).reduce((s, it) => s + it.cost * it.qty, 0);
       const profit = saleTotal - costTotal;
       grandProfit += profit;
-      rows.push([b.number, b.date, b.customerName, saleTotal, costTotal, profit]);
+      rows.push([b.number, b.date, b.customerName, subtotal, discount, saleTotal, costTotal, profit]);
     });
-    rows.push(['', '', '', '', 'TOTAL', grandProfit]);
+    rows.push(['', '', '', '', '', '', 'TOTAL', grandProfit]);
     downloadCsv(rows, `net-profit-${from || 'all'}_to_${to || 'all'}.csv`);
   };
   document.getElementById('rep-stock').onclick = () => {

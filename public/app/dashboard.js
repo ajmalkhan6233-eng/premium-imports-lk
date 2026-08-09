@@ -9,7 +9,7 @@ function renderHome() {
 
   const todaysSales = todaysBills.reduce((s, b) => s + (b.total || 0), 0);
   const todaysProfit = todaysBills.reduce((s, b) => {
-    const billProfit = (b.items || []).reduce((ps, it) => ps + ((it.price - it.cost) * it.qty), 0);
+    const billProfit = (b.items || []).reduce((ps, it) => ps + ((it.price - it.cost) * it.qty), 0) - (b.discountAmount || 0);
     return s + billProfit;
   }, 0);
   const stockValue = STATE.products.reduce((s, p) => s + (p.costPrice || 0) * (p.stock || 0), 0);
@@ -57,7 +57,7 @@ function renderMonthlyDetail() {
   const monthBills = STATE.bills.filter((b) => (b.date || '').slice(0, 7) === monthKey && b.type !== 'quote');
   const monthSales = monthBills.reduce((s, b) => s + (b.total || 0), 0);
   const monthProfit = monthBills.reduce((s, b) => {
-    const billProfit = (b.items || []).reduce((ps, it) => ps + ((it.price - it.cost) * it.qty), 0);
+    const billProfit = (b.items || []).reduce((ps, it) => ps + ((it.price - it.cost) * it.qty), 0) - (b.discountAmount || 0);
     return s + billProfit;
   }, 0);
   const productsByValue = [...STATE.products].sort((a, b) => (b.costPrice * b.stock) - (a.costPrice * a.stock));
@@ -94,7 +94,7 @@ function showProfitBreakdown(title, bills) {
     <h3>${title}</h3>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
       sorted.map((b) => {
-        const p = (b.items || []).reduce((s, it) => s + ((it.price - it.cost) * it.qty), 0);
+        const p = (b.items || []).reduce((s, it) => s + ((it.price - it.cost) * it.qty), 0) - (b.discountAmount || 0);
         return `<div class="list-row"><div><div class="title">${b.number || ''} — ${escapeHtml(b.customerName || 'Walk-in')}</div><div class="sub">${fmtDate(b.date)}</div></div><strong>${money(p)}</strong></div>`;
       }).join('')}
     <div class="modal-actions"><button class="btn secondary block" id="closeBreakdown">Close</button></div>

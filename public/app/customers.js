@@ -56,6 +56,7 @@ function openCustomerLedger(id) {
     <div class="card" style="margin:10px 0;display:flex;justify-content:space-between"><strong>Dues</strong><strong>${money(cu.dues)}</strong></div>
     ${isAdmin() ? '<button class="btn small" id="cl-edit">Edit</button>' : ''}
     <button class="btn small" id="cl-pay">Record Payment</button>
+    ${cu.phone ? '<button class="btn small secondary" id="cl-whatsapp">💬 WhatsApp</button>' : ''}
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
       sorted.map((l) => `<div class="list-row"><div><div class="title">${labelForLedgerType(l.type)} ${l.ref ? '(' + l.ref + ')' : ''}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><div style="text-align:right"><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong>${l.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l.balanceAfter)}</div>` : ''}</div></div>`).join('')}
@@ -64,6 +65,8 @@ function openCustomerLedger(id) {
   document.getElementById('cl-close').onclick = closeModal;
   if (isAdmin()) document.getElementById('cl-edit').onclick = () => openCustomerForm(id);
   document.getElementById('cl-pay').onclick = () => openCustomerPaymentForm(id);
+  const waBtn = document.getElementById('cl-whatsapp');
+  if (waBtn) waBtn.onclick = () => window.open(`https://wa.me/${cu.phone.replace(/\D/g, '')}`, '_blank');
 }
 function openCustomerPaymentForm(id) {
   const cu = STATE.customers.find((x) => x.id === id);
