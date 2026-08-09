@@ -268,9 +268,13 @@ app.post('/api/bill-scan', async (req, res) => {
   }
 });
 
-app.use('/lib', express.static(path.join(__dirname, 'public', 'lib')));
-app.use('/shop', express.static(path.join(__dirname, 'public', 'shop')));
-app.use('/', express.static(path.join(__dirname, 'public', 'app')));
+// No-cache on the app/shop static files: this is a local business tool that
+// gets edited and restarted often, and a stale cached .js file after an
+// update looks exactly like "the fix didn't work" to whoever is testing it.
+const noCache = { setHeaders: (res) => res.setHeader('Cache-Control', 'no-store') };
+app.use('/lib', express.static(path.join(__dirname, 'public', 'lib'), noCache));
+app.use('/shop', express.static(path.join(__dirname, 'public', 'shop'), noCache));
+app.use('/', express.static(path.join(__dirname, 'public', 'app'), noCache));
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('');
