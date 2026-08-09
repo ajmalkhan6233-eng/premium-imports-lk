@@ -1,6 +1,20 @@
 /* ================= REPORTS ================= */
+function computeMarketingSourceBreakdown() {
+  const rows = [];
+  [['facebook', 'Facebook'], ['tiktok', 'TikTok'], ['direct', 'Direct WhatsApp']].forEach(([src, label]) => {
+    const convos = (STATE.waConversations || []).filter((c) => c.source === src);
+    const customerIds = new Set(convos.map((c) => c.customerId).filter(Boolean));
+    const sales = STATE.bills.filter((b) => b.type !== 'quote' && b.customerId && customerIds.has(b.customerId));
+    rows.push({ label, conversations: convos.length, salesCount: sales.length, salesTotal: sales.reduce((s, b) => s + (b.total || 0), 0) });
+  });
+  const webOrders = STATE.orders || [];
+  const confirmedWeb = webOrders.filter((o) => o.status === 'confirmed');
+  rows.push({ label: 'Website (storefront)', conversations: webOrders.length, salesCount: confirmedWeb.length, salesTotal: confirmedWeb.reduce((s, o) => s + (o.total || 0), 0) });
+  return rows;
+}
 function renderReports() {
   const c = document.getElementById('pageContent');
+  const sourceRows = computeMarketingSourceBreakdown();
   c.innerHTML = `
     <div class="grid">
       <div class="card"><h3>Sales</h3><p class="sub">All bills and credit memos</p><button class="btn small" id="rep-sales">Export CSV</button></div>
@@ -16,6 +30,16 @@ function renderReports() {
         </div>
         <button class="btn small" id="rep-netprofit">Export CSV</button>
       </div>
+    </div>
+
+    <div class="section-title"><h3>Where customers come from</h3></div>
+    <div class="card">
+      <p class="sub" style="margin-top:-6px">Facebook/TikTok/Direct counts come from tagged WhatsApp conversations (Settings → Marketing Links); "resulting sales" are in-store bills matched to a customer from that conversation. Website counts come from storefront orders.</p>
+      <table>
+        <tr><th>Source</th><th>Conversations / Orders</th><th>Resulting Sales</th><th>Sales Value</th></tr>
+        ${sourceRows.map((r) => `<tr><td>${r.label}</td><td>${r.conversations}</td><td>${r.salesCount}</td><td>${money(r.salesTotal)}</td></tr>`).join('')}
+      </table>
+      <button class="btn small" style="margin-top:10px" id="rep-sources">Export CSV</button>
     </div>
   `;
   document.getElementById('rep-sales').onclick = () => {
@@ -55,6 +79,11 @@ function renderReports() {
     const rows = [['Lender', 'Phone', 'Given', 'Repaid', 'Balance']];
     STATE.lenders.forEach((l) => rows.push([l.name, l.phone, l.given, l.repaid, l.balance]));
     downloadCsv(rows, 'loans.csv');
+  };
+  document.getElementById('rep-sources').onclick = () => {
+    const rows = [['Source', 'Conversations / Orders', 'Resulting Sales', 'Sales Value']];
+    sourceRows.forEach((r) => rows.push([r.label, r.conversations, r.salesCount, r.salesTotal]));
+    downloadCsv(rows, 'marketing-sources.csv');
   };
 }
 function downloadCsv(rows, filename) {
