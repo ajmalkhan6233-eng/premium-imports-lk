@@ -136,6 +136,7 @@ function isAdmin() {
 function showLogin() {
   document.getElementById('loginScreen').classList.remove('hidden');
   document.getElementById('appShell').classList.add('hidden');
+  startAmbientBackground('loginAmbientBg');
   let selectedUser = null;
   const picker = document.getElementById('userPicker');
   picker.innerHTML = (STATE.settings.users || []).map((u) =>

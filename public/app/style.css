@@ -1,16 +1,16 @@
 :root {
-  --cream: #FAF6ED;
-  --cream-2: #F3ECDC;
+  --cream: #FAFAFA;
+  --cream-2: #F0F0F2;
   --gold: #C9A24B;
   --gold-dark: #A9843A;
-  --ink: #3A342A;
-  --ink-soft: #6B6153;
-  --line: #E7DFC9;
+  --ink: #29292E;
+  --ink-soft: #6B6B74;
+  --line: #E4E4E8;
   --white: #FFFFFF;
   --red: #B5533C;
   --green: #5C7A52;
   --radius: 10px;
-  --shadow: 0 2px 10px rgba(60, 50, 20, 0.06);
+  --shadow: 0 2px 10px rgba(20, 20, 30, 0.06);
 }
 
 * { box-sizing: border-box; }
@@ -35,8 +35,36 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
 
 .hidden { display: none !important; }
 
+.ambient-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ambient-dot {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--gold);
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@keyframes ambientDriftA {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(22px, -30px); }
+}
+@keyframes ambientDriftB {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-26px, 20px); }
+}
+@keyframes ambientDriftC {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(16px, 26px); }
+}
+
 /* ---------- Login ---------- */
 #loginScreen {
+  position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -44,6 +72,8 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
   padding: 24px;
 }
 .login-card {
+  position: relative;
+  z-index: 1;
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -236,7 +266,7 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
 
 .modal-backdrop {
   position: fixed; inset: 0;
-  background: rgba(40,32,15,0.35);
+  background: rgba(20,20,25,0.4);
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
   z-index: 100;
@@ -286,7 +316,7 @@ th { color: var(--ink-soft); font-weight: 600; }
   background: var(--white);
   border-top: 1px solid var(--line);
   padding: 10px 16px;
-  box-shadow: 0 -4px 12px rgba(60, 50, 20, 0.08);
+  box-shadow: 0 -4px 12px rgba(20, 20, 30, 0.08);
   z-index: 40;
 }
 .sell-total-bar-amount { display: flex; flex-direction: column; line-height: 1.2; }
