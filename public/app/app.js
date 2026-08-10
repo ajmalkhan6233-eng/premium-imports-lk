@@ -4,7 +4,7 @@
    data — stored in localStorage, applied before anything else renders so
    there's no flash of the default theme. */
 const THEMES = [
-  { id: 'navy', label: 'Navy & Copper' },
+  { id: 'navy', label: 'Royal & Gold' },
   { id: 'forest', label: 'Forest & Cream' },
   { id: 'slate', label: 'Charcoal & Slate' }
 ];

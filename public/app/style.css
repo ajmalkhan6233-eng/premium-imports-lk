@@ -1,11 +1,15 @@
 :root {
-  --cream: #F7F6F3;
-  --cream-2: #ECEAE4;
-  --accent: #C97B4A;
-  --accent-dark: #A85F35;
-  --ink: #1F2733;
-  --ink-soft: #5C6773;
-  --line: #DEDBD3;
+  --cream: #F6F5FB;
+  --cream-2: #ECE8F6;
+  --accent: #6D28D9;
+  --accent-dark: #5B21B6;
+  --secondary: #1D4ED8;
+  --secondary-dark: #1E3A8A;
+  --gold: #D4AF37;
+  --gold-dark: #B8952E;
+  --ink: #21202B;
+  --ink-soft: #5C5870;
+  --line: #DCD5EE;
   --white: #FFFFFF;
   --red: #B5533C;
   --green: #4C7A5E;
@@ -55,7 +59,7 @@ button, input, select, textarea {
   font-size: 1rem;
 }
 
-a { color: var(--accent-dark); }
+a { color: var(--secondary-dark); }
 
 h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
 
@@ -122,7 +126,7 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
   font-weight: 600;
   color: var(--ink);
 }
-.user-btn.active { background: var(--accent); color: var(--white); border-color: var(--accent-dark); }
+.user-btn.active { background: var(--secondary); color: var(--white); border-color: var(--secondary-dark); }
 #pinInput {
   width: 100%;
   padding: 12px;
@@ -143,41 +147,57 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
   cursor: pointer;
   font-weight: 600;
   text-align: center;
+  /* Gold underline reads as the "key CTA" accent (Complete Sale, Save, ...)
+     without turning the button itself into a gold fill. */
+  box-shadow: inset 0 -3px 0 var(--gold);
 }
 .btn:hover { background: var(--accent-dark); }
-.btn.secondary { background: var(--white); color: var(--ink); border-color: var(--line); }
-.btn.danger { background: var(--red); border-color: var(--red); }
+.btn.secondary { background: var(--white); color: var(--secondary-dark); border-color: var(--secondary); box-shadow: none; }
+.btn.secondary:hover { background: var(--cream-2); }
+.btn.danger { background: var(--red); border-color: var(--red); box-shadow: none; }
 .btn.small { padding: 8px 14px; font-size: 0.9rem; }
 .btn.block { display: block; width: 100%; }
 .error-text { color: var(--red); min-height: 20px; font-size: 0.9rem; }
 
 /* ---------- App shell ---------- */
-#appShell { display: flex; min-height: 100vh; }
+#appShell { display: block; min-height: 100vh; }
 
-.sidebar {
+/* Desktop nav: single-row, sticky, compact strip shared by every page —
+   see the mobile bottomnav below for the small-screen equivalent. */
+.topnav {
   display: none;
-  width: 220px;
+  position: sticky;
+  top: 0;
+  z-index: 55;
+  align-items: center;
+  gap: 14px;
   background: var(--white);
-  border-right: 1px solid var(--line);
-  flex-direction: column;
-  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0 16px;
 }
-.sidebar .brand { padding: 0 20px 20px 20px; font-weight: 600; color: var(--accent-dark); font-size: 1.1rem; }
-.sidebar nav { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.sidebar .nav-item, .bottomnav .nav-item {
+.topnav-brand { font-weight: 700; color: var(--accent-dark); font-size: 1rem; white-space: nowrap; flex: 0 0 auto; }
+.topnav-tabs { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; overflow: hidden; }
+.topnav-tabs .nav-item, .bottomnav .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 16px 20px;
+  gap: 5px;
   cursor: pointer;
   color: var(--ink-soft);
-  border-left: 3px solid transparent;
 }
-.sidebar .nav-item.active { color: var(--accent-dark); border-left-color: var(--accent); background: var(--cream-2); font-weight: 600; }
-.sidebar .footer-user { padding: 14px 20px; border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--ink-soft); }
+.topnav-tabs .nav-item {
+  flex: 0 0 auto;
+  padding: 10px 9px;
+  border-radius: 6px;
+  border-bottom: 2px solid transparent;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.topnav-tabs .nav-item .icon { font-size: 0.95rem; }
+.topnav-tabs .nav-item.active { color: var(--secondary-dark); border-bottom-color: var(--secondary); background: var(--cream-2); font-weight: 600; }
+.topnav-user { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: var(--ink-soft); white-space: nowrap; }
+.topnav-user a { color: var(--secondary-dark); }
 
 .main {
-  flex: 1;
   padding: 18px 18px 90px 18px;
   max-width: 1100px;
   width: 100%;
@@ -218,11 +238,11 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
   font-size: 0.75rem;
   gap: 2px;
 }
-.bottomnav .nav-item.active { color: var(--accent-dark); font-weight: 600; }
-.bottomnav .icon, .sidebar .icon { font-size: 1.2rem; }
+.bottomnav .nav-item.active { color: var(--secondary-dark); font-weight: 600; }
+.bottomnav .icon { font-size: 1.2rem; }
 
 @media (min-width: 900px) {
-  .sidebar { display: flex; }
+  .topnav { display: flex; }
   .bottomnav { display: none; }
   .main { padding: 16px 20px 20px 20px; }
 }
@@ -258,6 +278,7 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
   margin-bottom: 8px;
   cursor: pointer;
 }
+.list-row:hover { border-color: var(--secondary); background: var(--cream-2); }
 .list-row .title { font-weight: 600; }
 .list-row .sub { color: var(--ink-soft); font-size: 0.85rem; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.75rem; background: var(--cream-2); color: var(--ink-soft); }
@@ -288,7 +309,7 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
   border-radius: 8px;
   cursor: pointer;
 }
-.toggle-group button.active { background: var(--accent); color: var(--white); border-color: var(--accent-dark); }
+.toggle-group button.active { background: var(--secondary); color: var(--white); border-color: var(--secondary-dark); }
 
 .modal-backdrop {
   position: fixed; inset: 0;
@@ -329,6 +350,7 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); font-size: 0.9rem; }
 th { color: var(--ink-soft); font-weight: 600; }
+tbody tr:hover { background: var(--cream-2); }
 
 .product-photo { width: 100%; aspect-ratio: 1 / 1; height: auto; object-fit: cover; border-radius: 8px; background: var(--cream-2); }
 .product-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(150px, 190px)); }
@@ -342,7 +364,7 @@ th { color: var(--ink-soft); font-weight: 600; }
   cursor: pointer;
   font-size: 0.85rem;
 }
-.pill-filters button.active { background: var(--accent); color: var(--white); border-color: var(--accent-dark); }
+.pill-filters button.active { background: var(--secondary); color: var(--white); border-color: var(--secondary-dark); }
 
 .qr-box { text-align: center; padding: 14px; }
 .qr-box canvas, .qr-box #qrTarget { margin: 0 auto; }
@@ -368,10 +390,10 @@ th { color: var(--ink-soft); font-weight: 600; }
 }
 .sell-total-bar-amount { display: flex; flex-direction: column; line-height: 1.2; }
 .sell-total-bar-amount span { font-size: 0.78rem; color: var(--ink-soft); }
-.sell-total-bar-amount strong { font-size: 1.3rem; }
+.sell-total-bar-amount strong { font-size: 1.3rem; color: var(--gold-dark); }
 .sell-total-bar .btn { flex-shrink: 0; padding: 12px 22px; }
 @media (min-width: 900px) {
-  .sell-total-bar { left: 220px; bottom: 0; }
+  .sell-total-bar { left: 0; bottom: 0; }
   .sell-total-spacer { height: 70px; }
 }
 
@@ -395,7 +417,7 @@ th { color: var(--ink-soft); font-weight: 600; }
 /* ---------- Split list/detail (Vendors) ---------- */
 .split-layout { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
 .split-list { width: 100%; }
-.split-list .list-row.active { border-color: var(--accent); background: var(--cream-2); }
+.split-list .list-row.active { border-color: var(--secondary); background: var(--cream-2); }
 .split-detail { width: 100%; }
 .split-detail .empty-state { border: 1px dashed var(--line); border-radius: var(--radius); }
 @media (min-width: 900px) {
@@ -443,32 +465,37 @@ th { color: var(--ink-soft); font-weight: 600; }
    Placed last so it wins the cascade over the same-specificity base rules. */
 @media (min-width: 900px) {
   body { font-size: 0.88rem; }
-  .sidebar { width: 190px; }
-  .sidebar .nav-item { min-height: 34px; padding: 8px 16px; gap: 8px; }
-  .sidebar .brand { padding: 0 16px 14px 16px; font-size: 1rem; }
-  .sidebar .footer-user { padding: 10px 16px; font-size: 0.78rem; }
-  .card { padding: 10px; }
+  .topnav { min-height: 34px; }
+  .topnav-brand { font-size: 0.88rem; }
+  .topnav-tabs .nav-item { padding: 6px 8px; font-size: 0.72rem; gap: 4px; }
+  .topnav-tabs .nav-item .icon { font-size: 0.85rem; }
+  .topnav-user { font-size: 0.72rem; gap: 8px; }
+  .main { padding: 12px 20px 16px 20px; }
+  .card { padding: 8px; }
   .btn { padding: 7px 14px; font-size: 0.85rem; }
   .btn.small { padding: 5px 10px; font-size: 0.78rem; }
-  .field { margin-bottom: 7px; }
+  .field { margin-bottom: 6px; }
   .field label { font-size: 0.74rem; margin-bottom: 2px; }
   .field input, .field select, .field textarea { padding: 6px 8px; font-size: 0.85rem; }
   .field textarea { min-height: 48px; }
   .modal { padding: 14px; max-width: 420px; }
   .modal-close { width: 24px; height: 24px; font-size: 1rem; top: 6px; right: 6px; }
-  .list-row { padding: 7px 10px; margin-bottom: 5px; }
+  .list-row { padding: 6px 10px; margin-bottom: 4px; }
   .grid { gap: 10px; }
   .stat-card .value { font-size: 1.1rem; }
   .stat-card .label { font-size: 0.76rem; margin-bottom: 3px; }
-  .toggle-group { gap: 6px; margin-bottom: 10px; }
+  .toggle-group { gap: 6px; margin-bottom: 6px; }
   .toggle-group button { padding: 6px; font-size: 0.85rem; }
-  .section-title { margin: 12px 0 6px 0; }
+  .section-title { margin: 8px 0 4px 0; }
   .section-title h3 { font-size: 0.95rem; }
-  .topbar { margin-bottom: 10px; }
+  .topbar { margin-bottom: 6px; }
   .topbar h1 { font-size: 1.05rem; }
   table th, table td { padding: 5px 7px; font-size: 0.8rem; }
-  .pill-filters { gap: 6px; margin-bottom: 10px; }
+  .pill-filters { gap: 6px; margin-bottom: 8px; }
   .pill-filters button { padding: 4px 12px; font-size: 0.78rem; }
-  .empty-state { padding: 24px 16px; }
+  .empty-state { padding: 16px 16px; }
   h1, h2, h3 { margin: 0 0 5px 0; }
+  .sell-total-spacer { height: 62px; }
+  .sell-total-bar { padding: 7px 16px; }
+  .sell-total-bar-amount strong { font-size: 1.1rem; }
 }
