@@ -84,6 +84,7 @@ function openSegmentsModal() {
   openModal(`
     <h3>Purchase Insights</h3>
     <p class="sub" style="margin-top:-6px">Rule-based grouping from real purchase history — no AI involved.</p>
+    <button class="btn small secondary" id="seg-export">Export CSV</button>
     <div class="section-title"><h3>Frequent buyers (3+ purchases in 90 days)</h3></div>
     ${frequent.length === 0 ? '<div class="empty-state">None yet.</div>' :
       frequent.map(({ cu, count90 }) => `<div class="list-row" style="cursor:default"><div><div class="title">${escapeHtml(cu.name)}</div><div class="sub">${count90} purchases in the last 90 days</div></div><button class="btn small secondary" data-draft="frequent" data-cid="${cu.id}">Draft message</button></div>`).join('')}
@@ -96,6 +97,13 @@ function openSegmentsModal() {
     <button class="btn secondary block" style="margin-top:10px" id="seg-close">Close</button>
   `);
   document.getElementById('seg-close').onclick = closeModal;
+  document.getElementById('seg-export').onclick = () => {
+    const rows = [['Segment', 'Customer', 'Phone', 'Detail']];
+    frequent.forEach(({ cu, count90 }) => rows.push(['Frequent buyer', cu.name, cu.phone, `${count90} purchases in last 90 days`]));
+    goneQuiet.forEach(({ cu, lastDate }) => rows.push(['Gone quiet', cu.name, cu.phone, `Last bought ${fmtDate(lastDate)}`]));
+    prefs.forEach(({ cu, category }) => rows.push(['Category preference', cu.name, cu.phone, `Mostly buys ${category}`]));
+    downloadCsv(rows, 'purchase-insights.csv');
+  };
   document.querySelectorAll('[data-draft]').forEach((btn) => {
     btn.onclick = () => {
       const cu = STATE.customers.find((x) => x.id === btn.dataset.cid);
@@ -111,6 +119,7 @@ function openCustomerForm(id) {
     <div class="field"><label>Name</label><input id="cf-name" value="${cu ? escapeHtml(cu.name) : ''}"></div>
     <div class="field"><label>Phone</label><input id="cf-phone" value="${cu ? escapeHtml(cu.phone || '') : ''}"></div>
     <div class="field"><label>Address</label><input id="cf-address" value="${cu ? escapeHtml(cu.address || '') : ''}"></div>
+    <div class="field"><label>Notes (internal only — never shown on bills)</label><textarea id="cf-notes" placeholder="Preferences, reminders, anything worth remembering">${cu ? escapeHtml(cu.notes || '') : ''}</textarea></div>
     <div class="modal-actions">
       <button class="btn secondary" id="cf-cancel">Cancel</button>
       <button class="btn" id="cf-save">Save</button>
@@ -128,8 +137,9 @@ function openCustomerForm(id) {
     if (!name) { toast('Name is required'); return; }
     const phone = document.getElementById('cf-phone').value.trim();
     const address = document.getElementById('cf-address').value.trim();
-    if (cu) Object.assign(cu, { name, phone, address });
-    else STATE.customers.push({ id: uid('C'), name, phone, address, dues: 0, ledger: [] });
+    const notes = document.getElementById('cf-notes').value.trim();
+    if (cu) Object.assign(cu, { name, phone, address, notes });
+    else STATE.customers.push({ id: uid('C'), name, phone, address, notes, dues: 0, ledger: [] });
     await saveKey('customers');
     closeModal();
     renderCustomers();
@@ -149,6 +159,7 @@ function openCustomerLedger(id) {
   openModal(`
     <h3>${escapeHtml(cu.name)}</h3>
     <div class="sub">${escapeHtml(cu.phone || '')} · ${escapeHtml(cu.address || '')}</div>
+    ${cu.notes ? `<p class="sub" style="margin-top:4px"><em>${escapeHtml(cu.notes)}</em></p>` : ''}
     <div class="card" style="margin:10px 0;display:flex;justify-content:space-between"><strong>Dues</strong><strong>${money(cu.dues)}</strong></div>
     ${nextDue ? `<div class="card" style="margin:-4px 0 10px;display:flex;justify-content:space-between"><span>${overdue ? '⚠ Overdue since' : 'Next due'}</span><strong${overdue ? ' style="color:var(--red)"' : ''}>${fmtDate(nextDue)}</strong></div>` : ''}
     ${isAdmin() ? '<button class="btn small" id="cl-edit">Edit</button>' : ''}

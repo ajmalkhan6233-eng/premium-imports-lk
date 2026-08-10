@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160">
+  <defs>
+    <linearGradient id="goldGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C9A24B"/>
+      <stop offset="100%" stop-color="#A9843A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- badge -->
+  <g transform="translate(10,10)">
+    <circle cx="70" cy="70" r="68" fill="#FFFFFF" stroke="url(#goldGrad2)" stroke-width="4"/>
+    <circle cx="70" cy="70" r="59" fill="none" stroke="#C9A24B" stroke-width="1.2" opacity="0.55"/>
+    <text x="70" y="91" text-anchor="middle"
+          font-family="Georgia, 'Times New Roman', serif" font-weight="700"
+          font-size="62" fill="url(#goldGrad2)" letter-spacing="-1">PI</text>
+    <path d="M 105 34 L 108 41 L 115 44 L 108 47 L 105 54 L 102 47 L 95 44 L 102 41 Z" fill="#C9A24B"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="168" y="82" font-family="Georgia, 'Times New Roman', serif" font-weight="700"
+        font-size="46" fill="#29292E" letter-spacing="1">PREMIUM IMPORTS</text>
+  <text x="168" y="112" font-family="-apple-system, 'Segoe UI', Roboto, Arial, sans-serif" font-weight="600"
+        font-size="20" fill="#A9843A" letter-spacing="6">SRI LANKA</text>
+</svg>

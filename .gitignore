@@ -5,3 +5,4 @@ backups/
 *.log
 secrets.json
 whatsapp-bridge/auth/
+whatsapp-bridge/qr.png

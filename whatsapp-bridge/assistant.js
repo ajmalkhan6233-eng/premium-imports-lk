@@ -11,12 +11,37 @@ function timeOfDayGreeting() {
   return 'Good evening';
 }
 
+// Lets the model signal "show a photo of this" instead of only replying in
+// text — the bridge does the actual sending (real photo, real price looked
+// up from data) so a price can never be invented inside a caption.
+const SHOW_PRODUCTS_TOOL = {
+  name: 'show_products',
+  description: 'Show the customer photo(s) of specific in-stock products, each with a short one-line promotional caption. Use this whenever the customer asks what you have / what\'s available, or asks about specific item(s) by name — a photo sells far better than a text list. Do not use it for questions that aren\'t about browsing/choosing a product (e.g. delivery, hours, order status).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      products: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Exact product name, copied exactly from CURRENT STOCK AND PRICES' },
+            blurb: { type: 'string', description: 'One short, warm, natural promotional line about this product — no price and no facts beyond what\'s given, the system adds the real price after your caption' }
+          },
+          required: ['name', 'blurb']
+        }
+      }
+    },
+    required: ['products']
+  }
+};
+
 function buildSystemPrompt({ settings, products, assistantName }) {
   const shopName = settings.shopName || 'Premium Imports LK';
   const dz = settings.deliveryZones || {};
   const inStock = products.filter((p) => (p.stock || 0) > 0);
   const productLines = inStock.length
-    ? inStock.map((p) => `- ${p.name} (${p.category}): Rs. ${p.sellingPrice || 0}, ${p.stock} in stock`).join('\n')
+    ? inStock.map((p) => `- ${p.name} (${p.category}): Rs. ${p.sellingPrice || 0}, ${p.stock} in stock${p.photo ? ', has a photo' : ', no photo on file'}`).join('\n')
     : '(No stock currently loaded — if asked, say you will check and get back to them.)';
   const greeting = timeOfDayGreeting();
 
@@ -25,6 +50,8 @@ function buildSystemPrompt({ settings, products, assistantName }) {
 If this is the very first message in a new conversation, open naturally with a time-of-day greeting appropriate to right now ("${greeting}") — never a flat identity statement like "This is ${assistantName}". After the opening, just talk like yourself.
 
 What you can discuss, using ONLY the real data below — never invent a price, stock count, offer, or delivery fact that isn't here. If you don't know something, say you'll check and get back to them — don't guess.
+
+OPENING HOURS: ${settings.shopHours || '(not set yet — if asked, say you will confirm and get back to them)'}
 
 CURRENT STOCK AND PRICES:
 ${productLines}
@@ -35,7 +62,9 @@ DELIVERY:
 - Zone notes: ${dz.zoneNotes || '(not set yet — if asked about a specific area, say you will confirm and get back to them)'}
 Answer delivery questions in your own natural words based on these notes, not as a rigid quoted table.
 
-Keep replies short and conversational, like a real WhatsApp message — a sentence or two, not a paragraph. Use a warm, friendly, natural tone.`;
+SHOWING PRODUCTS: when a customer asks what's available, or asks about a specific item that has a photo on file, call the show_products tool with the exact product name(s) — customers respond far better to a photo than a text list. Keep any accompanying text reply short since the photo+caption is doing the selling. Only ever name products that are actually in CURRENT STOCK AND PRICES.
+
+Keep replies short and conversational, like a real WhatsApp message — a sentence or two, not a paragraph. Use a warm, friendly, natural tone — a little persuasive/sales-minded is good, but never dishonest or pushy.`;
 }
 
 async function generateReply({ apiKey, settings, products, assistantName, history, incomingText }) {
@@ -55,8 +84,9 @@ async function generateReply({ apiKey, settings, products, assistantName, histor
     },
     body: JSON.stringify({
       model: ASSISTANT_MODEL,
-      max_tokens: 400,
+      max_tokens: 500,
       system: systemPrompt,
+      tools: [SHOW_PRODUCTS_TOOL],
       messages
     })
   });
@@ -65,8 +95,12 @@ async function generateReply({ apiKey, settings, products, assistantName, histor
     throw new Error(`Anthropic API error ${response.status}: ${errText.slice(0, 300)}`);
   }
   const data = await response.json();
-  const textBlock = (data.content || []).find((c) => c.type === 'text');
-  return textBlock ? textBlock.text.trim() : "Sorry, give me a moment and I'll get back to you!";
+  const content = data.content || [];
+  const text = content.filter((c) => c.type === 'text').map((c) => c.text.trim()).filter(Boolean).join('\n\n');
+  const productShowcases = content
+    .filter((c) => c.type === 'tool_use' && c.name === 'show_products')
+    .flatMap((c) => (c.input && Array.isArray(c.input.products)) ? c.input.products : []);
+  return { text, productShowcases };
 }
 
-module.exports = { generateReply, timeOfDayGreeting, buildSystemPrompt };
+module.exports = { generateReply, timeOfDayGreeting, buildSystemPrompt, SHOW_PRODUCTS_TOOL };

@@ -2,11 +2,21 @@
 function renderSettings() {
   const c = document.getElementById('pageContent');
   const s = STATE.settings;
+  const currentTheme = localStorage.getItem('pilk_theme') || 'navy';
   c.innerHTML = `
     <div class="card">
+      <h3>Appearance</h3>
+      <p class="sub" style="margin-top:-6px">Pick whichever fits your mood — this is just a look, not shop data, and only affects this device.</p>
+      <div class="toggle-group" id="st-theme-group" style="margin-bottom:0">
+        ${THEMES.map((t) => `<button data-theme-pick="${t.id}" class="${t.id === currentTheme ? 'active' : ''}">${escapeHtml(t.label)}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
       <h3>Shop</h3>
       <div class="field"><label>Shop Name</label><input id="st-shopname" value="${escapeHtml(s.shopName || '')}"></div>
       <div class="field"><label>WhatsApp Number</label><input id="st-whatsapp" value="${escapeHtml(s.whatsappNumber || '')}"></div>
+      <div class="field"><label>Opening Hours (shown to customers by the WhatsApp assistant)</label><input id="st-hours" placeholder="e.g. 9 AM - 8 PM, Mon-Sat" value="${escapeHtml(s.shopHours || '')}"></div>
       <button class="btn small" id="st-save-shop">Save</button>
     </div>
 
@@ -117,9 +127,16 @@ function renderSettings() {
     </div>
   `;
 
+  c.querySelectorAll('[data-theme-pick]').forEach((btn) => {
+    btn.onclick = () => {
+      applyTheme(btn.dataset.themePick);
+      c.querySelectorAll('#st-theme-group button').forEach((b) => b.classList.toggle('active', b === btn));
+    };
+  });
   document.getElementById('st-save-shop').onclick = async () => {
     s.shopName = document.getElementById('st-shopname').value.trim();
     s.whatsappNumber = document.getElementById('st-whatsapp').value.trim();
+    s.shopHours = document.getElementById('st-hours').value.trim();
     await saveKey('settings');
     document.getElementById('sidebarBrand').textContent = s.shopName;
     toast('Saved');

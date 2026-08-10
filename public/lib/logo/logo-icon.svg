@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#C9A24B"/>
+      <stop offset="100%" stop-color="#A9843A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- outer badge -->
+  <circle cx="100" cy="100" r="96" fill="#FFFFFF" stroke="url(#goldGrad)" stroke-width="5"/>
+  <circle cx="100" cy="100" r="84" fill="none" stroke="#C9A24B" stroke-width="1.5" opacity="0.55"/>
+
+  <!-- monogram -->
+  <text x="100" y="128" text-anchor="middle"
+        font-family="Georgia, 'Times New Roman', serif" font-weight="700"
+        font-size="88" fill="url(#goldGrad)" letter-spacing="-2">PI</text>
+
+  <!-- sparkle accent -->
+  <path d="M 150 48 L 154 58 L 164 62 L 154 66 L 150 76 L 146 66 L 136 62 L 146 58 Z" fill="#C9A24B"/>
+
+  <!-- underline flourish -->
+  <line x1="66" y1="140" x2="134" y2="140" stroke="url(#goldGrad)" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

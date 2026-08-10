@@ -1,26 +1,84 @@
 /* ================= LOANS ================= */
+let selectedLenderId = null;
+
 function renderLoans() {
   const c = document.getElementById('pageContent');
   const totalOutstanding = STATE.lenders.reduce((s, l) => s + (l.balance || 0), 0);
   c.innerHTML = `
-    <div class="row">
-      <button class="btn" id="addLoanBtn">+ Add Loan</button>
-      <button class="btn secondary" id="addLenderBtn">+ New Lender</button>
+    <div class="split-layout">
+      <div class="split-list">
+        <div class="row">
+          <button class="btn" id="addLoanBtn">+ Add Loan</button>
+          <button class="btn secondary" id="addLenderBtn">+ New Lender</button>
+        </div>
+        <div class="card" style="margin-top:10px;display:flex;justify-content:space-between"><strong>Total Outstanding</strong><strong>${money(totalOutstanding)}</strong></div>
+        <div style="margin-top:10px">
+          ${STATE.lenders.length === 0 ? '<div class="empty-state">No lenders yet.</div>' :
+            STATE.lenders.map((l) => `
+              <div class="list-row ${l.id === selectedLenderId ? 'active' : ''}" data-id="${l.id}">
+                <div><div class="title">${escapeHtml(l.name)}</div><div class="sub">Given ${money(l.given)} · Repaid ${money(l.repaid)}</div></div>
+                <span class="badge ${l.balance > 0 ? 'due' : 'ok'}">${money(l.balance)}</span>
+              </div>`).join('')}
+        </div>
+      </div>
+      <div class="split-detail" id="lenderDetail">${renderLenderDetailHtml()}</div>
     </div>
-    <div style="margin-top:14px">
-      ${STATE.lenders.length === 0 ? '<div class="empty-state">No lenders yet.</div>' :
-        STATE.lenders.map((l) => `
-          <div class="list-row" data-id="${l.id}">
-            <div><div class="title">${escapeHtml(l.name)}</div><div class="sub">Given ${money(l.given)} · Repaid ${money(l.repaid)}</div></div>
-            <span class="badge ${l.balance > 0 ? 'due' : 'ok'}">${money(l.balance)}</span>
-          </div>`).join('')}
-    </div>
-    <div class="card" style="margin-top:16px;display:flex;justify-content:space-between"><strong>Total Outstanding</strong><strong>${money(totalOutstanding)}</strong></div>
   `;
   document.getElementById('addLoanBtn').onclick = () => openAddLoanForm();
   document.getElementById('addLenderBtn').onclick = () => openLenderForm(null);
-  c.querySelectorAll('.list-row').forEach((el) => el.onclick = () => openLenderLedger(el.dataset.id));
+  c.querySelectorAll('.split-list .list-row').forEach((el) => {
+    el.onclick = () => { selectedLenderId = el.dataset.id; renderLoans(); };
+  });
+  bindLenderDetailEvents();
 }
+// Selects a lender in the split view — kept as a function (not inlined)
+// since dashboard.js's Loans-outstanding breakdown navigates here by id.
+function openLenderLedger(id) {
+  selectedLenderId = id;
+  renderLoans();
+}
+
+function renderLenderDetailHtml() {
+  const l = selectedLenderId ? STATE.lenders.find((x) => x.id === selectedLenderId) : null;
+  if (!l) return '<div class="empty-state">Select a lender to see contact info, balance, and history.</div>';
+  const sorted = [...(l.ledger || [])].sort((a, b) => b.date.localeCompare(a.date));
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div>
+          <h3 style="margin-bottom:2px">${escapeHtml(l.name)}</h3>
+          <div class="sub">${escapeHtml(l.phone || 'No phone on file')}${l.address ? ' · ' + escapeHtml(l.address) : ''}</div>
+        </div>
+        ${isAdmin() ? '<button class="btn small secondary" id="ld-edit">Edit</button>' : ''}
+      </div>
+    </div>
+    <div class="grid" style="margin:14px 0">
+      <div class="card"><div class="label">Given</div><div class="value">${money(l.given)}</div></div>
+      <div class="card"><div class="label">Repaid</div><div class="value">${money(l.repaid)}</div></div>
+      <div class="card"><div class="label">Balance</div><div class="value">${money(l.balance)}</div></div>
+    </div>
+    <button class="btn small" id="ld-pay">Record Payment</button>
+    <div class="section-title"><h3>Balance over time</h3></div>
+    <div class="card">${renderLedgerChartSvg(l.ledger)}</div>
+    <div class="section-title"><h3>Ledger</h3></div>
+    ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
+      sorted.map((l2) => `
+        <div class="list-row" style="cursor:default">
+          <div><div class="title">${l2.type === 'loan' ? 'Loan Given' : 'Repayment'}${l2.method ? ' (' + escapeHtml(l2.method) + ')' : ''}</div>
+            <div class="sub">${fmtDate(l2.date)} ${l2.note ? '· ' + escapeHtml(l2.note) : ''}</div></div>
+          <div style="text-align:right"><strong>${l2.type === 'payment' ? '-' : '+'}${money(l2.amount)}</strong>${l2.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l2.balanceAfter)}</div>` : ''}</div>
+        </div>`).join('')}
+  `;
+}
+function bindLenderDetailEvents() {
+  const l = selectedLenderId ? STATE.lenders.find((x) => x.id === selectedLenderId) : null;
+  if (!l) return;
+  const editBtn = document.getElementById('ld-edit');
+  if (editBtn) editBtn.onclick = () => openLenderForm(l.id);
+  const payBtn = document.getElementById('ld-pay');
+  if (payBtn) payBtn.onclick = () => openLoanPaymentForm(l.id);
+}
+
 function openLenderForm(id, onSaved) {
   const l = id ? STATE.lenders.find((x) => x.id === id) : null;
   openModal(`
@@ -38,6 +96,7 @@ function openLenderForm(id, onSaved) {
   if (l && isAdmin()) document.getElementById('lf-delete').onclick = () => {
     if (!confirm(`Delete ${l.name}? This cannot be undone.`)) return;
     STATE.lenders = STATE.lenders.filter((x) => x.id !== l.id);
+    if (selectedLenderId === l.id) selectedLenderId = null;
     saveKey('lenders').then(() => { closeModal(); renderLoans(); toast('Lender deleted'); });
   };
   document.getElementById('lf-save').onclick = async () => {
@@ -46,8 +105,13 @@ function openLenderForm(id, onSaved) {
     const phone = document.getElementById('lf-phone').value.trim();
     const address = document.getElementById('lf-address').value.trim();
     let saved = l;
-    if (l) Object.assign(l, { name, phone, address });
-    else { saved = { id: uid('LN'), name, phone, address, given: 0, repaid: 0, balance: 0, ledger: [] }; STATE.lenders.push(saved); }
+    if (l) {
+      Object.assign(l, { name, phone, address });
+    } else {
+      saved = { id: uid('LN'), name, phone, address, given: 0, repaid: 0, balance: 0, ledger: [] };
+      STATE.lenders.push(saved);
+      selectedLenderId = saved.id;
+    }
     await saveKey('lenders');
     if (onSaved) onSaved(saved);
     else { closeModal(); renderLoans(); }
@@ -89,32 +153,10 @@ function openAddLoanForm(preselectLenderId, keepAmount, keepDate) {
     l.ledger = l.ledger || [];
     l.ledger.push({ id: uid('L'), type: 'loan', date: document.getElementById('al-date').value || todayISO(), amount, method: '', note: '', balanceAfter: l.balance, by: STATE.user });
     await saveKey('lenders');
+    selectedLenderId = l.id;
     closeModal();
     renderLoans();
   };
-}
-function openLenderLedger(id) {
-  const l = STATE.lenders.find((x) => x.id === id);
-  if (!l) return;
-  const sorted = [...(l.ledger || [])].sort((a, b) => b.date.localeCompare(a.date));
-  openModal(`
-    <h3>${escapeHtml(l.name)}</h3>
-    <div class="sub">${escapeHtml(l.phone || '')}${l.address ? ' · ' + escapeHtml(l.address) : ''}</div>
-    <div class="grid" style="margin:10px 0">
-      <div class="card"><div class="label">Given</div><div class="value">${money(l.given)}</div></div>
-      <div class="card"><div class="label">Repaid</div><div class="value">${money(l.repaid)}</div></div>
-      <div class="card"><div class="label">Balance</div><div class="value">${money(l.balance)}</div></div>
-    </div>
-    ${isAdmin() ? '<button class="btn small" id="ll-edit">Edit</button>' : ''}
-    <button class="btn small" id="ll-pay">Record Payment</button>
-    <div class="section-title"><h3>Ledger</h3></div>
-    ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
-      sorted.map((l2) => `<div class="list-row"><div><div class="title">${escapeHtml(l.name)} — ${l2.type === 'loan' ? 'Loan Given' : 'Repayment'}${l2.method ? ' (' + escapeHtml(l2.method) + ')' : ''}</div><div class="sub">${fmtDate(l2.date)} ${l2.note ? '· ' + escapeHtml(l2.note) : ''}</div></div><div style="text-align:right"><strong>${l2.type === 'payment' ? '-' : '+'}${money(l2.amount)}</strong>${l2.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l2.balanceAfter)}</div>` : ''}</div></div>`).join('')}
-    <button class="btn secondary block" style="margin-top:10px" id="ll-close">Close</button>
-  `);
-  document.getElementById('ll-close').onclick = closeModal;
-  if (isAdmin()) document.getElementById('ll-edit').onclick = () => openLenderForm(id);
-  document.getElementById('ll-pay').onclick = () => openLoanPaymentForm(id);
 }
 function openLoanPaymentForm(id) {
   const l = STATE.lenders.find((x) => x.id === id);
@@ -145,8 +187,6 @@ function openLoanPaymentForm(id) {
     });
     await saveKey('lenders');
     closeModal();
-    openLenderLedger(id);
     renderLoans();
   };
 }
-

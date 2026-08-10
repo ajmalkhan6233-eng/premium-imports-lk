@@ -1,10 +1,12 @@
 /* ================= GRN ================= */
 let grnDraft = null;
 function renderGRN() {
-  if (!grnDraft) grnDraft = { vendorId: null, vendorName: '', items: [], aiSuggestions: [] };
+  if (!grnDraft) grnDraft = { vendorId: null, vendorName: '', invoiceNumber: '', discount: 0, items: [], aiSuggestions: [] };
   if (!grnDraft.aiSuggestions) grnDraft.aiSuggestions = [];
   const c = document.getElementById('pageContent');
-  const total = grnDraft.items.reduce((s, it) => s + it.qty * it.cost, 0);
+  const subtotal = grnDraft.items.reduce((s, it) => s + it.qty * it.cost, 0);
+  const discount = parseFloat(grnDraft.discount) || 0;
+  const total = Math.max(0, subtotal - discount);
   c.innerHTML = `
     <div class="card">
       <div class="field"><label>Vendor</label>
@@ -14,6 +16,7 @@ function renderGRN() {
           <option value="__new__">+ Add new vendor</option>
         </select>
       </div>
+      <div class="field"><label>Invoice number</label><input id="grn-invoice-number" placeholder="From the supplier's paper invoice" value="${escapeHtml(grnDraft.invoiceNumber || '')}"></div>
     </div>
     <div class="section-title"><h3>Items</h3>
       <div style="display:flex;gap:8px">
@@ -23,9 +26,9 @@ function renderGRN() {
     </div>
     <input type="file" accept="image/*" capture="environment" id="grn-scan-input" class="hidden">
     ${grnDraft.aiSuggestions.length === 0 ? '' : `
-      <div class="section-title"><h3 style="color:var(--gold-dark)">AI suggested — check before saving</h3></div>
+      <div class="section-title"><h3 style="color:var(--accent-dark)">AI suggested — check before saving</h3></div>
       ${grnDraft.aiSuggestions.map((s, idx) => `
-        <div class="list-row" data-ai-review="${idx}" style="border-color:var(--gold)">
+        <div class="list-row" data-ai-review="${idx}" style="border-color:var(--accent)">
           <div><div class="title">${escapeHtml(s.name || '(unreadable name)')}</div>
             <div class="sub">${s.quantity === null || s.quantity === undefined ? 'Qty: ?' : 'Qty: ' + s.quantity} · ${s.costPrice === null || s.costPrice === undefined ? 'Cost: ?' : 'Cost: ' + money(s.costPrice)}</div></div>
           <div style="display:flex;gap:8px">
@@ -37,12 +40,24 @@ function renderGRN() {
     `}
     <div class="section-title"><h3>Confirmed Lines</h3></div>
     ${grnDraft.items.length === 0 ? '<div class="empty-state">No items added yet.</div>' :
-      grnDraft.items.map((it, idx) => `
-        <div class="list-row" data-edit-idx="${idx}"><div><div class="title">${escapeHtml(it.name)}</div><div class="sub">${escapeHtml(it.category || '')} · ${it.qty} × ${money(it.cost)}</div></div>
+      grnDraft.items.map((it, idx) => {
+        const last = findLastVendorPrice(grnDraft.vendorId, it.productId);
+        const priceFlag = last && last.cost !== it.cost
+          ? `<div class="sub" style="color:${it.cost > last.cost ? 'var(--red)' : 'var(--green)'}">${it.cost > last.cost ? '▲' : '▼'} was ${money(last.cost)} last time</div>`
+          : '';
+        return `
+        <div class="list-row" data-edit-idx="${idx}"><div><div class="title">${escapeHtml(it.name)}</div><div class="sub">${escapeHtml(it.category || '')} · ${it.qty} × ${money(it.cost)}</div>${priceFlag}</div>
         <div style="display:flex;align-items:center;gap:10px"><strong>${money(it.qty * it.cost)}</strong><button class="btn small secondary" data-idx="${idx}">Remove</button></div></div>
-      `).join('')}
-    <div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between"><strong>Total</strong><strong>${money(total)}</strong></div></div>
-    <button class="btn block" style="margin-top:14px" id="grn-save" ${grnDraft.items.length === 0 ? 'disabled' : ''}>Save GRN</button>
+      `;
+      }).join('')}
+    <div class="card" style="margin-top:14px">
+      <div class="field"><label>Discount given on invoice (Rs.)</label><input type="number" min="0" step="0.01" id="grn-discount" value="${grnDraft.discount || ''}" placeholder="0"></div>
+      <div style="display:flex;justify-content:space-between;color:var(--ink-soft)"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+      ${discount > 0 ? `<div style="display:flex;justify-content:space-between;color:var(--ink-soft)"><span>Discount</span><span>-${money(discount)}</span></div>` : ''}
+      <div style="display:flex;justify-content:space-between;margin-top:6px"><strong>Invoice total</strong><strong>${money(total)}</strong></div>
+      <p class="sub">Check this matches the paper invoice before saving.</p>
+    </div>
+    <button class="btn" style="margin-top:14px" id="grn-save" ${grnDraft.items.length === 0 ? 'disabled' : ''}>Save GRN</button>
   `;
   document.getElementById('grn-vendor').onchange = (e) => {
     const val = e.target.value;
@@ -50,6 +65,11 @@ function renderGRN() {
     const v = STATE.vendors.find((x) => x.id === val);
     grnDraft.vendorId = v ? v.id : null;
     grnDraft.vendorName = v ? v.name : '';
+  };
+  document.getElementById('grn-invoice-number').onchange = (e) => { grnDraft.invoiceNumber = e.target.value.trim(); };
+  document.getElementById('grn-discount').onchange = (e) => {
+    grnDraft.discount = parseFloat(e.target.value) || 0;
+    renderGRN();
   };
   document.getElementById('grn-add-item').onclick = openGrnLineForm;
   document.getElementById('grn-scan-photo').onclick = startGrnScan;
@@ -253,15 +273,39 @@ function openInlineNewProduct(nameGuess) {
     toast('New product added to GRN');
   };
 }
+// Last price this vendor actually charged for this product, from real GRN
+// history — so a price change is something Ajmal notices, not something he
+// has to remember.
+function findLastVendorPrice(vendorId, productId) {
+  if (!vendorId) return null;
+  const matches = STATE.grns
+    .filter((g) => g.vendorId === vendorId)
+    .flatMap((g) => (g.items || []).filter((it) => it.productId === productId).map((it) => ({ cost: it.cost, date: g.date, number: g.number })))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  return matches[0] || null;
+}
 function openGrnQtyCost(product) {
+  const last = findLastVendorPrice(grnDraft.vendorId, product.id);
   openModal(`
     <h3>${escapeHtml(product.name)}</h3>
+    ${last ? `<p class="sub" style="margin-top:-6px">Last paid this vendor: ${money(last.cost)} (${escapeHtml(last.number)}, ${fmtDate(last.date)})</p>` : ''}
     <div class="row">
       <div class="field"><label>Qty received</label><input type="number" id="gq-qty" value="1"></div>
       <div class="field"><label>Cost Price</label><input type="number" step="0.01" id="gq-cost" value="${product.costPrice || ''}"></div>
     </div>
-    <button class="btn block" id="gq-add">Add to GRN</button>
+    <p class="sub" id="gq-price-flag"></p>
+    <button class="btn" id="gq-add">Add to GRN</button>
   `);
+  const updateFlag = () => {
+    const el = document.getElementById('gq-price-flag');
+    if (!last) { el.textContent = ''; return; }
+    const cost = parseFloat(document.getElementById('gq-cost').value) || 0;
+    if (cost === last.cost) { el.textContent = ''; el.style.color = ''; return; }
+    const higher = cost > last.cost;
+    el.style.color = higher ? 'var(--red)' : 'var(--green)';
+    el.textContent = `${higher ? '▲' : '▼'} ${higher ? 'Rs. ' + (cost - last.cost).toFixed(2) + ' higher' : 'Rs. ' + (last.cost - cost).toFixed(2) + ' lower'} than last time`;
+  };
+  if (last) { document.getElementById('gq-cost').oninput = updateFlag; updateFlag(); }
   document.getElementById('gq-add').onclick = () => {
     const qty = parseInt(document.getElementById('gq-qty').value, 10) || 1;
     const cost = parseFloat(document.getElementById('gq-cost').value) || 0;
@@ -303,10 +347,14 @@ function openGrnLineEdit(idx) {
 }
 async function saveGrn() {
   if (!grnDraft.vendorId) { toast('Select a vendor'); return; }
-  const total = grnDraft.items.reduce((s, it) => s + it.qty * it.cost, 0);
+  if (!grnDraft.invoiceNumber || !grnDraft.invoiceNumber.trim()) { toast('Invoice number is required'); return; }
+  const subtotal = grnDraft.items.reduce((s, it) => s + it.qty * it.cost, 0);
+  const discount = parseFloat(grnDraft.discount) || 0;
+  const total = Math.max(0, subtotal - discount);
   const grn = {
-    id: uid('G'), number: nextNumber(STATE.grns, 'GRN'), date: todayISO(),
-    vendorId: grnDraft.vendorId, vendorName: grnDraft.vendorName, items: grnDraft.items, total, by: STATE.user
+    id: uid('G'), number: nextNumber('grn', 'GRN'), date: todayISO(),
+    vendorId: grnDraft.vendorId, vendorName: grnDraft.vendorName, invoiceNumber: grnDraft.invoiceNumber.trim(),
+    items: grnDraft.items, subtotal, discount, total, by: STATE.user
   };
   STATE.grns.push(grn);
   grnDraft.items.forEach((it) => {
@@ -320,7 +368,7 @@ async function saveGrn() {
     vendor.ledger = vendor.ledger || [];
     vendor.ledger.push({ id: uid('L'), type: 'grn', date: todayISO(), amount: total, ref: grn.number, note: '', balanceAfter: vendor.balance, by: STATE.user });
   }
-  await Promise.all([saveKey('grns'), saveKey('products'), saveKey('vendors')]);
+  await Promise.all([saveKey('grns'), saveKey('settings'), saveKey('products'), saveKey('vendors')]);
   grnDraft = null;
   toast('GRN saved, stock updated');
   renderGRN();

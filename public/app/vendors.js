@@ -1,20 +1,83 @@
 /* ================= VENDORS ================= */
+let selectedVendorId = null;
+
 function renderVendors() {
   const c = document.getElementById('pageContent');
+  const list = STATE.vendors;
   c.innerHTML = `
-    <button class="btn" id="addVendorBtn">+ Add Vendor</button>
-    <div style="margin-top:14px">
-      ${STATE.vendors.length === 0 ? '<div class="empty-state">No vendors yet.</div>' :
-        STATE.vendors.map((v) => `
-          <div class="list-row" data-id="${v.id}">
-            <div><div class="title">${escapeHtml(v.name)}</div><div class="sub">Purchased ${money(v.purchased)} · Paid ${money(v.paid)}</div></div>
-            <span class="badge ${v.balance > 0 ? 'due' : 'ok'}">${v.balance > 0 ? money(v.balance) + ' due' : 'Settled'}</span>
-          </div>`).join('')}
+    <div class="split-layout">
+      <div class="split-list">
+        <button class="btn block" id="addVendorBtn">+ Add Vendor</button>
+        <div style="margin-top:10px">
+          ${list.length === 0 ? '<div class="empty-state">No vendors yet.</div>' :
+            list.map((v) => `
+              <div class="list-row ${v.id === selectedVendorId ? 'active' : ''}" data-id="${v.id}">
+                <div><div class="title">${escapeHtml(v.name)}</div><div class="sub">Purchased ${money(v.purchased)} · Paid ${money(v.paid)}</div></div>
+                <span class="badge ${v.balance > 0 ? 'due' : 'ok'}">${v.balance > 0 ? money(v.balance) + ' due' : 'Settled'}</span>
+              </div>`).join('')}
+        </div>
+      </div>
+      <div class="split-detail" id="vendorDetail">${renderVendorDetailHtml()}</div>
     </div>
   `;
   document.getElementById('addVendorBtn').onclick = () => openVendorForm(null);
-  c.querySelectorAll('.list-row').forEach((el) => el.onclick = () => openVendorLedger(el.dataset.id));
+  c.querySelectorAll('.split-list .list-row').forEach((el) => {
+    el.onclick = () => { selectedVendorId = el.dataset.id; renderVendors(); };
+  });
+  bindVendorDetailEvents();
 }
+
+function renderVendorDetailHtml() {
+  const v = selectedVendorId ? STATE.vendors.find((x) => x.id === selectedVendorId) : null;
+  if (!v) return '<div class="empty-state">Select a vendor to see contact info, balance, and history.</div>';
+  const sortedLedger = [...(v.ledger || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const vendorGrns = STATE.grns.filter((g) => g.vendorId === v.id).sort((a, b) => b.date.localeCompare(a.date));
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div>
+          <h3 style="margin-bottom:2px">${escapeHtml(v.name)}</h3>
+          <div class="sub">${escapeHtml(v.phone || 'No phone on file')}${v.address ? ' · ' + escapeHtml(v.address) : ''}</div>
+        </div>
+        ${isAdmin() ? '<button class="btn small secondary" id="vd-edit">Edit</button>' : ''}
+      </div>
+    </div>
+    <div class="grid" style="margin:14px 0">
+      <div class="card"><div class="label">Purchased</div><div class="value">${money(v.purchased)}</div></div>
+      <div class="card"><div class="label">Paid</div><div class="value">${money(v.paid)}</div></div>
+      <div class="card"><div class="label">Balance</div><div class="value">${money(v.balance)}</div></div>
+    </div>
+    <button class="btn small" id="vd-pay">Record Payment</button>
+    <div class="section-title"><h3>Balance over time</h3></div>
+    <div class="card">${renderLedgerChartSvg(v.ledger)}</div>
+    <div class="section-title"><h3>Ledger</h3></div>
+    ${sortedLedger.length === 0 ? '<div class="empty-state">No transactions.</div>' :
+      sortedLedger.map((l) => `
+        <div class="list-row" style="cursor:default">
+          <div><div class="title">${labelForLedgerType(l.type)}${l.ref ? ' (' + escapeHtml(l.ref) + ')' : ''}${l.method ? ' (' + escapeHtml(l.method) + ')' : ''}</div>
+            <div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div>
+          <div style="text-align:right"><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong>${l.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l.balanceAfter)}</div>` : ''}</div>
+        </div>`).join('')}
+    <div class="section-title"><h3>GRN History</h3></div>
+    ${vendorGrns.length === 0 ? '<div class="empty-state">No goods received yet.</div>' :
+      vendorGrns.map((g) => `
+        <div class="list-row" style="cursor:default">
+          <div><div class="title">${escapeHtml(g.number)}${g.invoiceNumber ? ' — Invoice ' + escapeHtml(g.invoiceNumber) : ''}</div>
+            <div class="sub">${fmtDate(g.date)} · ${g.items.length} item(s)</div></div>
+          <strong>${money(g.total)}</strong>
+        </div>`).join('')}
+  `;
+}
+
+function bindVendorDetailEvents() {
+  const v = selectedVendorId ? STATE.vendors.find((x) => x.id === selectedVendorId) : null;
+  if (!v) return;
+  const editBtn = document.getElementById('vd-edit');
+  if (editBtn) editBtn.onclick = () => openVendorForm(v.id);
+  const payBtn = document.getElementById('vd-pay');
+  if (payBtn) payBtn.onclick = () => openVendorPaymentForm(v.id);
+}
+
 function openVendorForm(id) {
   const v = id ? STATE.vendors.find((x) => x.id === id) : null;
   openModal(`
@@ -32,6 +95,7 @@ function openVendorForm(id) {
   if (v && isAdmin()) document.getElementById('vf-delete').onclick = () => {
     if (!confirm(`Delete ${v.name}? This cannot be undone.`)) return;
     STATE.vendors = STATE.vendors.filter((x) => x.id !== v.id);
+    if (selectedVendorId === v.id) selectedVendorId = null;
     saveKey('vendors').then(() => { closeModal(); renderVendors(); toast('Vendor deleted'); });
   };
   document.getElementById('vf-save').onclick = async () => {
@@ -39,35 +103,17 @@ function openVendorForm(id) {
     if (!name) { toast('Name is required'); return; }
     const phone = document.getElementById('vf-phone').value.trim();
     const address = document.getElementById('vf-address').value.trim();
-    if (v) Object.assign(v, { name, phone, address });
-    else STATE.vendors.push({ id: uid('V'), name, phone, address, purchased: 0, paid: 0, balance: 0, ledger: [] });
+    if (v) {
+      Object.assign(v, { name, phone, address });
+    } else {
+      const newVendor = { id: uid('V'), name, phone, address, purchased: 0, paid: 0, balance: 0, ledger: [] };
+      STATE.vendors.push(newVendor);
+      selectedVendorId = newVendor.id;
+    }
     await saveKey('vendors');
     closeModal();
     renderVendors();
   };
-}
-function openVendorLedger(id) {
-  const v = STATE.vendors.find((x) => x.id === id);
-  if (!v) return;
-  const sorted = [...(v.ledger || [])].sort((a, b) => b.date.localeCompare(a.date));
-  openModal(`
-    <h3>${escapeHtml(v.name)}</h3>
-    <div class="sub">${escapeHtml(v.phone || '')}${v.address ? ' · ' + escapeHtml(v.address) : ''}</div>
-    <div class="grid" style="margin:10px 0">
-      <div class="card"><div class="label">Purchased</div><div class="value">${money(v.purchased)}</div></div>
-      <div class="card"><div class="label">Paid</div><div class="value">${money(v.paid)}</div></div>
-      <div class="card"><div class="label">Balance</div><div class="value">${money(v.balance)}</div></div>
-    </div>
-    ${isAdmin() ? '<button class="btn small" id="vl-edit">Edit</button>' : ''}
-    <button class="btn small" id="vl-pay">Record Payment</button>
-    <div class="section-title"><h3>Ledger</h3></div>
-    ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
-      sorted.map((l) => `<div class="list-row"><div><div class="title">${escapeHtml(v.name)} — ${labelForLedgerType(l.type)}${l.ref ? ' (' + escapeHtml(l.ref) + ')' : ''}${l.method ? ' (' + escapeHtml(l.method) + ')' : ''}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><div style="text-align:right"><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong>${l.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l.balanceAfter)}</div>` : ''}</div></div>`).join('')}
-    <button class="btn secondary block" style="margin-top:10px" id="vl-close">Close</button>
-  `);
-  document.getElementById('vl-close').onclick = closeModal;
-  if (isAdmin()) document.getElementById('vl-edit').onclick = () => openVendorForm(id);
-  document.getElementById('vl-pay').onclick = () => openVendorPaymentForm(id);
 }
 function openVendorPaymentForm(id) {
   const v = STATE.vendors.find((x) => x.id === id);
@@ -98,8 +144,6 @@ function openVendorPaymentForm(id) {
     });
     await saveKey('vendors');
     closeModal();
-    openVendorLedger(id);
     renderVendors();
   };
 }
-

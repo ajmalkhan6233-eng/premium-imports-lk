@@ -4,7 +4,8 @@ const SHOP = {
   settings: null,
   products: [],
   cart: [], // {productId, name, price, qty}
-  categoryFilter: 'All'
+  categoryFilter: 'All',
+  searchQuery: ''
 };
 
 async function apiGet(key) {
@@ -44,6 +45,23 @@ function saveCartToStorage() {
   localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(SHOP.cart));
 }
 
+/* ---- Reveal-on-scroll (hero glow / section labels / product cards) ---- */
+let revealObserver = null;
+function observeReveal(el) {
+  if (!('IntersectionObserver' in window)) { el.classList.add('in'); return; }
+  if (!revealObserver) {
+    revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          revealObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15 });
+  }
+  revealObserver.observe(el);
+}
+
 async function boot() {
   loadCartFromStorage();
   try {
@@ -54,74 +72,62 @@ async function boot() {
     document.getElementById('productGrid').innerHTML = '<div class="empty-state">Could not load the shop. Please try again later.</div>';
     return;
   }
-  document.getElementById('shopTitle').textContent = SHOP.settings.shopName || 'Premium Imports LK';
   document.title = SHOP.settings.shopName || 'Premium Imports LK';
   renderFilters();
   renderGrid();
   updateCartCount();
   document.getElementById('cartBtn').onclick = openCartDrawer;
-  startAmbientBackground('particleBg');
-}
-
-/* ---- Scroll-in reveal for product cards ---- */
-let cardObserver = null;
-function observeCardsForReveal() {
-  const cards = document.querySelectorAll('.product-card.card-pending');
-  if (!('IntersectionObserver' in window)) {
-    cards.forEach((el) => el.classList.remove('card-pending'));
-    return;
-  }
-  if (!cardObserver) {
-    cardObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.remove('card-pending');
-          entry.target.classList.add('card-in');
-          cardObserver.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.15 });
-  }
-  cards.forEach((el) => cardObserver.observe(el));
+  document.getElementById('searchInput').addEventListener('input', (e) => {
+    SHOP.searchQuery = e.target.value.trim().toLowerCase();
+    renderGrid();
+  });
+  document.getElementById('searchBtn').onclick = () => document.getElementById('searchInput').focus();
+  document.querySelectorAll('main .reveal').forEach(observeReveal);
 }
 
 function renderFilters() {
   const cats = ['All', ...(SHOP.settings.categories || [])];
   document.getElementById('catFilters').innerHTML = cats.map((c) =>
-    `<button data-cat="${escapeHtml(c)}" class="${c === SHOP.categoryFilter ? 'active' : ''}">${escapeHtml(c)}</button>`
+    `<div data-cat="${escapeHtml(c)}" class="cat${c === SHOP.categoryFilter ? ' active' : ''}">${escapeHtml(c)}</div>`
   ).join('');
-  document.querySelectorAll('#catFilters button').forEach((b) => {
+  document.querySelectorAll('#catFilters .cat').forEach((b) => {
     b.onclick = () => { SHOP.categoryFilter = b.dataset.cat; renderFilters(); renderGrid(); };
   });
 }
 
 function renderGrid() {
   const grid = document.getElementById('productGrid');
-  const list = SHOP.products.filter((p) => (p.stock || 0) > 0 && (SHOP.categoryFilter === 'All' || p.category === SHOP.categoryFilter));
+  const q = SHOP.searchQuery;
+  const list = SHOP.products.filter((p) =>
+    (p.stock || 0) > 0 &&
+    (SHOP.categoryFilter === 'All' || p.category === SHOP.categoryFilter) &&
+    (!q || p.name.toLowerCase().includes(q))
+  );
   if (list.length === 0) {
     grid.innerHTML = '<div class="empty-state">No products available right now. Please check back soon.</div>';
     return;
   }
-  grid.innerHTML = list.map((p, idx) => {
+  const waNumber = (SHOP.settings.whatsappNumber || '').replace(/\D/g, '');
+  grid.innerHTML = list.map((p) => {
     const hasPrice = p.sellingPrice && p.sellingPrice > 0;
-    const waNumber = (SHOP.settings.whatsappNumber || '').replace(/\D/g, '');
     const waText = encodeURIComponent(`Hi, I'm interested in "${p.name}". Can you tell me the price?`);
-    const delay = (idx % 10) * 45;
-    return `<div class="product-card card-pending" style="animation-delay:${delay}ms">
-      ${p.photo ? `<img class="photo" src="${p.photo}">` : `<div class="photo"></div>`}
-      <div class="body">
-        <div class="name">${escapeHtml(p.name)}</div>
-        <div class="cat">${escapeHtml(p.category)}</div>
-        ${hasPrice
-          ? `<div class="price">${money(p.sellingPrice)}</div><button data-add="${p.id}">Add to Cart</button>`
-          : `<div class="price">Ask for Price</div><a class="ask" style="display:block" href="https://wa.me/${waNumber}?text=${waText}" target="_blank"><button class="ask" type="button">Ask on WhatsApp</button></a>`}
+    return `<div class="card reveal">
+      <div class="thumb">${p.photo ? `<img src="${p.photo}">` : 'photo'}</div>
+      <div class="info">
+        <div class="cat-tag">${escapeHtml(p.category)}</div>
+        <h3>${escapeHtml(p.name)}</h3>
+        <div class="row">
+          ${hasPrice
+            ? `<div class="price">${money(p.sellingPrice)}</div><button class="add" data-add="${p.id}">+</button>`
+            : `<div class="price">Ask for Price</div><a class="ask-btn" href="https://wa.me/${waNumber}?text=${waText}" target="_blank">Ask</a>`}
+        </div>
       </div>
     </div>`;
   }).join('');
   grid.querySelectorAll('[data-add]').forEach((btn) => {
     btn.onclick = () => addToCart(btn.dataset.add);
   });
-  observeCardsForReveal();
+  grid.querySelectorAll('.card').forEach(observeReveal);
 }
 
 function addToCart(productId) {
@@ -151,7 +157,7 @@ function renderCartDrawer() {
         ${SHOP.cart.length === 0 ? '<div class="empty-state">Your cart is empty.</div>' :
           SHOP.cart.map((it, idx) => `
             <div class="cart-item">
-              <div><div>${escapeHtml(it.name)}</div><div style="color:var(--ink-soft);font-size:0.85rem">${money(it.price)} each</div></div>
+              <div><div>${escapeHtml(it.name)}</div><div style="color:var(--muted);font-size:0.85rem">${money(it.price)} each</div></div>
               <div class="qty-controls">
                 <button data-minus="${idx}">-</button>
                 <span>${it.qty}</span>

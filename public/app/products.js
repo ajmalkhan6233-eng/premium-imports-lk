@@ -7,7 +7,7 @@ function renderProducts() {
   c.innerHTML = `
     <div class="pill-filters">${cats.map((cat) => `<button data-cat="${escapeHtml(cat)}" class="${cat === productFilter ? 'active' : ''}">${escapeHtml(cat)}</button>`).join('')}</div>
     ${isAdmin() ? '<button class="btn" id="addProductBtn">+ Add Product</button>' : '<p class="sub">View only — ask an Admin to add or edit products.</p>'}
-    <div class="grid" style="margin-top:14px">
+    <div class="product-grid" style="margin-top:14px">
       ${list.length === 0 ? '<div class="empty-state">No products yet.</div>' : list.map(productCardHtml).join('')}
     </div>
   `;
@@ -18,6 +18,9 @@ function renderProducts() {
     document.getElementById('addProductBtn').onclick = () => openProductForm(null);
     c.querySelectorAll('.product-card').forEach((el) => {
       el.onclick = () => openProductForm(el.dataset.id);
+    });
+    c.querySelectorAll('[data-edit-product]').forEach((btn) => {
+      btn.onclick = (e) => { e.stopPropagation(); openProductForm(btn.dataset.editProduct); };
     });
   } else {
     c.querySelectorAll('.product-card').forEach((el) => { el.style.cursor = 'default'; });
@@ -34,6 +37,7 @@ function productCardHtml(p) {
       <span class="badge ${p.stock <= LOW_STOCK_THRESHOLD ? 'due' : 'ok'}">${p.stock} in stock</span>
     </div>
     <div class="sub" style="font-size:0.8rem;color:var(--ink-soft)">Margin: ${margin}${margin !== '—' ? '%' : ''}</div>
+    ${isAdmin() ? `<button class="btn small secondary block" data-edit-product="${p.id}" style="margin-top:8px">Edit</button>` : ''}
   </div>`;
 }
 
@@ -59,7 +63,7 @@ function openProductForm(id) {
       <div class="field"><label>Selling Price</label><input type="number" step="0.01" id="pf-price" value="${p ? p.sellingPrice : ''}"></div>
     </div>
     <div class="field"><label>Margin</label><div id="pf-margin" style="color:var(--ink-soft)">—</div></div>
-    <div class="field"><label>Stock</label><input type="number" id="pf-stock" value="${p ? p.stock : 0}"></div>
+    ${p ? `<p class="sub">Stock: ${p.stock} — adjust stock only through GRN, not here.</p>` : ''}
     <div class="field"><label>Notes</label><textarea id="pf-notes">${p ? escapeHtml(p.notes || '') : ''}</textarea></div>
     <div class="modal-actions">
       <button class="btn secondary" id="pf-cancel">Cancel</button>
@@ -99,19 +103,18 @@ function openProductForm(id) {
     const source = document.getElementById('pf-source').value.trim();
     const costPrice = parseFloat(document.getElementById('pf-cost').value) || 0;
     const sellingPrice = parseFloat(document.getElementById('pf-price').value) || 0;
-    const stock = parseInt(document.getElementById('pf-stock').value, 10) || 0;
     const notes = document.getElementById('pf-notes').value.trim();
     const now = new Date().toISOString();
     if (p) {
       const priceChanged = p.sellingPrice !== sellingPrice;
-      Object.assign(p, { name, category, brand, source, costPrice, sellingPrice, stock, notes, photo: photoData, updatedAt: now });
+      Object.assign(p, { name, category, brand, source, costPrice, sellingPrice, notes, photo: photoData, updatedAt: now });
       if (priceChanged) {
         p.priceHistory = p.priceHistory || [];
         p.priceHistory.push({ price: sellingPrice, date: now });
       }
     } else {
       STATE.products.push({
-        id: uid('P'), name, category, brand, source, costPrice, sellingPrice, stock, notes, photo: photoData,
+        id: uid('P'), name, category, brand, source, costPrice, sellingPrice, stock: 0, notes, photo: photoData,
         priceHistory: [{ price: sellingPrice, date: now }], createdAt: now, updatedAt: now
       });
     }

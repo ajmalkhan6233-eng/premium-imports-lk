@@ -26,4 +26,13 @@ function checkEscalation(text) {
   return { escalate: !!hit, matchedKeyword: hit || null };
 }
 
-module.exports = { checkEscalation, HOLDING_REPLY, ESCALATION_KEYWORDS };
+// Default wake phrase — typed by Nushra or Ajmal into a chat the assistant
+// has gone silent on (after barge-in) to hand it back to the bot. Easy to
+// change here if Ajmal wants something else once he sees it in action.
+const WAKE_PHRASE = 'ai on';
+
+function isWakePhrase(text) {
+  return String(text || '').trim().toLowerCase() === WAKE_PHRASE;
+}
+
+module.exports = { checkEscalation, HOLDING_REPLY, ESCALATION_KEYWORDS, WAKE_PHRASE, isWakePhrase };

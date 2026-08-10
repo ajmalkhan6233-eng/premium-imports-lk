@@ -5,14 +5,16 @@
    whatsapp-bridge/auth/ so it reconnects automatically after that. */
 const path = require('path');
 const qrcodeTerminal = require('qrcode-terminal');
+const QRCode = require('qrcode');
 const { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
-const { getData, loadAnthropicKey } = require('./dataClient');
+const { getData, putData, loadAnthropicKey } = require('./dataClient');
 const { loadConversations, saveConversations, findOrCreateConversation, logMessage } = require('./conversations');
-const { checkEscalation, HOLDING_REPLY } = require('./guards');
+const { checkEscalation, HOLDING_REPLY, isWakePhrase } = require('./guards');
 const { checkPaymentPlanIntent, formatPlanMenu, parsePlanChoice } = require('./paymentPlan');
 const { generateReply } = require('./assistant');
 
 const AUTH_DIR = path.join(__dirname, 'auth');
+const QR_FILE = path.join(__dirname, 'qr.png');
 // Message IDs the bridge itself sent, so an incoming fromMe event can be
 // told apart from something Nushra typed herself on her own phone.
 const sentMessageIds = new Set();
@@ -43,6 +45,23 @@ async function sendReply(sock, jid, text) {
   return sent;
 }
 
+function dataUrlToBuffer(dataUrl) {
+  const match = /^data:[^;]+;base64,(.+)$/.exec(dataUrl || '');
+  return match ? Buffer.from(match[1], 'base64') : null;
+}
+
+// Photo + a short promo line + the real price (looked up here, never taken
+// from the model) — this is what actually sells over a text-only list.
+async function sendProductPhoto(sock, jid, product, blurb) {
+  const priceLine = `Rs. ${product.sellingPrice || 0}`;
+  const caption = [blurb, priceLine].filter(Boolean).join('\n');
+  const buffer = dataUrlToBuffer(product.photo);
+  if (!buffer) return sendReply(sock, jid, `*${product.name}*\n${caption}`);
+  const sent = await sock.sendMessage(jid, { image: buffer, caption });
+  if (sent && sent.key && sent.key.id) sentMessageIds.add(sent.key.id);
+  return sent;
+}
+
 async function handleIncoming(sock, msg) {
   const jid = msg.key.remoteJid;
   if (isIgnorableJid(jid)) return;
@@ -50,7 +69,8 @@ async function handleIncoming(sock, msg) {
 
   // Barge-in: Nushra sending something herself from her real phone shows up
   // as fromMe too, exactly like our own sent replies do. Anything fromMe
-  // that we didn't send ourselves means she just took over this chat.
+  // that we didn't send ourselves means she just took over this chat — the
+  // assistant then stays silent until "bot on" is typed into that same chat.
   if (msg.key.fromMe) {
     if (msg.key.id && sentMessageIds.has(msg.key.id)) return;
     const text = extractText(msg);
@@ -58,6 +78,29 @@ async function handleIncoming(sock, msg) {
     const customers = await getData('customers');
     const list = await loadConversations();
     const conv = findOrCreateConversation(list, phone, text, customers);
+
+    if (isWakePhrase(text)) {
+      if (conv.humanHandled) {
+        conv.humanHandled = false;
+        conv.handoffReason = null;
+        logMessage(conv, 'nushra', text);
+        await saveConversations(list);
+        console.log(`[wake] ${phone}: wake phrase received — assistant resuming.`);
+      }
+      return;
+    }
+
+    // First time someone actually talks to this number over WhatsApp: save
+    // them to the customer database (phone is what makes them findable —
+    // the name is a placeholder until the shop fills in the real one).
+    if (!conv.customerId) {
+      const newCustomer = { id: `C${Date.now()}${Math.random().toString(36).slice(2, 6)}`, name: `WhatsApp ${phone}`, phone, address: '', dues: 0, ledger: [] };
+      customers.push(newCustomer);
+      await putData('customers', customers);
+      conv.customerId = newCustomer.id;
+      console.log(`[customer] ${phone}: added to customer database.`);
+    }
+
     conv.humanHandled = true;
     conv.handoffReason = 'manual';
     conv.awaitingPlanChoice = false;
@@ -130,9 +173,23 @@ async function handleIncoming(sock, msg) {
   }
   try {
     const history = conv.messages.slice(0, -1); // exclude the customer message just logged; generateReply appends it itself
-    const reply = await generateReply({ apiKey, settings, products, assistantName, history, incomingText: text });
-    await sendReply(sock, jid, reply);
-    logMessage(conv, 'assistant', reply);
+    const { text: replyText, productShowcases } = await generateReply({ apiKey, settings, products, assistantName, history, incomingText: text });
+
+    for (const item of productShowcases) {
+      const product = products.find((p) => p.name.toLowerCase() === String(item.name || '').toLowerCase() && (p.stock || 0) > 0);
+      if (!product) continue; // model named something not actually in stock — skip rather than show a wrong item
+      await sendProductPhoto(sock, jid, product, item.blurb || '');
+      logMessage(conv, 'assistant', `[photo: ${product.name}] ${item.blurb || ''}`.trim());
+    }
+
+    if (replyText) {
+      await sendReply(sock, jid, replyText);
+      logMessage(conv, 'assistant', replyText);
+    } else if (!productShowcases.length) {
+      const fallback = "Sorry, give me a moment and I'll get back to you!";
+      await sendReply(sock, jid, fallback);
+      logMessage(conv, 'assistant', fallback);
+    }
   } catch (e) {
     console.error('[assistant] reply generation failed:', e.message);
     const fallback = 'Sorry, having a bit of trouble on my end — give me a moment!';
@@ -156,6 +213,9 @@ async function start() {
     if (qr) {
       console.log("\nScan this QR code with the shop's WhatsApp (Settings > Linked Devices > Link a Device):\n");
       qrcodeTerminal.generate(qr, { small: true });
+      QRCode.toFile(QR_FILE, qr, { width: 320 })
+        .then(() => console.log(`(Also saved as an image: ${QR_FILE} — easier to view/scan than the terminal version above.)`))
+        .catch((e) => console.error('Could not save QR image:', e.message));
     }
     if (connection === 'close') {
       const statusCode = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode;

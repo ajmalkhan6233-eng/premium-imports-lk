@@ -27,6 +27,7 @@ function defaultData() {
       startingBillNumber: 1,
       logo: null,
       assistantName: 'Nushra',
+      shopHours: '',
       deliveryZones: {
         homeBase: 'Thihariya junction',
         freeDeliveryMin: 2000,
@@ -45,7 +46,8 @@ function defaultData() {
     bills: [],
     grns: [],
     orders: [],
-    waConversations: []
+    waConversations: [],
+    documents: []
   };
 }
 
@@ -73,6 +75,7 @@ function backfillSettingsDefaults(settings) {
   const d = defaultData().settings;
   let changed = false;
   if (settings.assistantName === undefined) { settings.assistantName = d.assistantName; changed = true; }
+  if (settings.shopHours === undefined) { settings.shopHours = d.shopHours; changed = true; }
   if (!settings.deliveryZones) { settings.deliveryZones = d.deliveryZones; changed = true; }
   if (!settings.paymentPlans) { settings.paymentPlans = d.paymentPlans; changed = true; }
   return changed;
@@ -137,7 +140,7 @@ function saveData() {
 }
 
 const app = express();
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({ limit: '30mb' }));
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });

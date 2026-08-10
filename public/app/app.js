@@ -1,5 +1,20 @@
 /* Premium Imports LK - internal app (vanilla JS, no build step) */
 
+/* Theme is a personal, per-device preference ("pick your mood"), not shop
+   data — stored in localStorage, applied before anything else renders so
+   there's no flash of the default theme. */
+const THEMES = [
+  { id: 'navy', label: 'Navy & Copper' },
+  { id: 'forest', label: 'Forest & Cream' },
+  { id: 'slate', label: 'Charcoal & Slate' }
+];
+function applyTheme(id) {
+  if (id && id !== 'navy') document.documentElement.setAttribute('data-theme', id);
+  else document.documentElement.removeAttribute('data-theme');
+  localStorage.setItem('pilk_theme', id || 'navy');
+}
+applyTheme(localStorage.getItem('pilk_theme') || 'navy');
+
 const STATE = {
   user: null,
   role: null,
@@ -12,6 +27,7 @@ const STATE = {
   grns: [],
   orders: [],
   waConversations: [],
+  documents: [],
   activeTab: 'home',
   sellCart: [],
   sellType: 'bill',
@@ -23,7 +39,7 @@ const STATE = {
   secretsStatus: null
 };
 
-const KEYS = ['settings', 'products', 'customers', 'vendors', 'lenders', 'bills', 'grns', 'orders', 'waConversations'];
+const KEYS = ['settings', 'products', 'customers', 'vendors', 'lenders', 'bills', 'grns', 'orders', 'waConversations', 'documents'];
 const LOW_STOCK_THRESHOLD = 5;
 
 const NAV_ITEMS = [
@@ -87,9 +103,15 @@ function fmtDate(iso) {
 function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 9999)}`;
 }
-function nextNumber(list, prefix) {
-  const n = (list.length + 1).toString().padStart(4, '0');
-  return `${prefix}-${n}`;
+// Durable, never-reused sequence numbers. Backed by settings.counters
+// (persisted to data.json) instead of array length, which would silently
+// reuse a number after any deletion or reset.
+function nextNumber(counterKey, prefix, startAt) {
+  STATE.settings.counters = STATE.settings.counters || {};
+  const next = (STATE.settings.counters[counterKey] || 0) + 1;
+  STATE.settings.counters[counterKey] = next;
+  const base = (parseInt(startAt, 10) || 1) - 1;
+  return `${prefix}-${String(base + next).padStart(4, '0')}`;
 }
 function escapeHtml(s) {
   if (s === null || s === undefined) return '';
@@ -258,6 +280,7 @@ function goTab(tab) {
   });
   document.getElementById('pageTitle').textContent = NAV_ITEMS.find((n) => n.id === tab).label;
   renderOnlineOrdersBadge();
+  if (tab === 'sell') sellNeedsCustomerFocus = true;
   if (tab !== 'sell') document.getElementById('sellTotalBarRoot').innerHTML = '';
   const renderers = {
     home: renderHome, products: renderProducts, sell: renderSell, grn: renderGRN,
@@ -289,6 +312,49 @@ function compressImage(file, maxDim, cb) {
 
 function labelForLedgerType(t) {
   return { bill: 'Bill', memo: 'Credit Memo', payment: 'Payment', grn: 'GRN', loan: 'Loan' }[t] || t;
+}
+
+// Shared running-balance chart for any ledger array (vendors, lenders,
+// customers) — each entry already carries balanceAfter, so this just plots
+// it over time. No charting library: a handful of SVG elements is plenty
+// for "is this trending up or down," and it stays themeable via CSS vars.
+function renderLedgerChartSvg(ledger) {
+  const entries = [...(ledger || [])].sort((a, b) => a.date.localeCompare(b.date));
+  if (entries.length === 0) return '<div class="empty-state">No transactions yet — nothing to chart.</div>';
+  const width = 560, height = 140, padX = 10, padTop = 14, padBottom = 22;
+  const values = entries.map((e) => e.balanceAfter || 0);
+  const maxV = Math.max(...values, 0);
+  const minV = Math.min(...values, 0);
+  const range = (maxV - minV) || 1;
+  const innerW = width - padX * 2;
+  const innerH = height - padTop - padBottom;
+  const xFor = (i) => entries.length === 1 ? padX + innerW / 2 : padX + (i / (entries.length - 1)) * innerW;
+  const yFor = (v) => padTop + innerH - ((v - minV) / range) * innerH;
+  const points = entries.map((e, i) => [xFor(i), yFor(e.balanceAfter || 0)]);
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const zeroY = yFor(0).toFixed(1);
+  const areaPath = `${linePath} L${points[points.length - 1][0].toFixed(1)},${zeroY} L${points[0][0].toFixed(1)},${zeroY} Z`;
+  const dots = entries.map((e, i) => {
+    const isCredit = e.type !== 'payment';
+    return `<circle class="${isCredit ? 'lc-dot-credit' : 'lc-dot-debit'}" cx="${points[i][0].toFixed(1)}" cy="${points[i][1].toFixed(1)}" r="3"><title>${escapeHtml(fmtDate(e.date))} · ${escapeHtml(labelForLedgerType(e.type))} · ${money(e.amount)} · Balance ${money(e.balanceAfter)}</title></circle>`;
+  }).join('');
+  const firstLabel = escapeHtml(fmtDate(entries[0].date));
+  const lastLabel = escapeHtml(fmtDate(entries[entries.length - 1].date));
+  return `
+    <div class="ledger-chart-wrap">
+      <svg class="ledger-chart" viewBox="0 0 ${width} ${height}" width="100%" height="${height}" preserveAspectRatio="none">
+        <line class="lc-axis" x1="${padX}" y1="${zeroY}" x2="${width - padX}" y2="${zeroY}"></line>
+        <path class="lc-area" d="${areaPath}"></path>
+        <path class="lc-line" d="${linePath}"></path>
+        ${dots}
+        <text class="lc-label" x="${padX}" y="${height - 6}">${firstLabel}</text>
+        <text class="lc-label" x="${width - padX}" y="${height - 6}" text-anchor="end">${lastLabel}</text>
+      </svg>
+      <div class="chart-legend">
+        <span><span class="dot" style="background:var(--red)"></span> Increases balance owed</span>
+        <span><span class="dot" style="background:var(--green)"></span> Payment received/made</span>
+      </div>
+    </div>`;
 }
 
 boot();

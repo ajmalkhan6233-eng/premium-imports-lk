@@ -3,7 +3,7 @@ function renderOnlineOrdersBadge() {
   const pending = STATE.orders.filter((o) => o.status === 'pending');
   if (STATE.activeTab === 'sell' && pending.length) {
     badge.classList.remove('hidden');
-    badge.innerHTML = `<div class="card" style="margin-bottom:14px;border-color:var(--gold);cursor:pointer" id="pendingOrdersCard">
+    badge.innerHTML = `<div class="card" style="margin-bottom:14px;border-color:var(--accent);cursor:pointer" id="pendingOrdersCard">
       <strong>${pending.length} online order${pending.length > 1 ? 's' : ''} waiting</strong> — tap to review
     </div>`;
     document.getElementById('pendingOrdersCard').onclick = showPendingOrders;
@@ -14,7 +14,8 @@ function renderOnlineOrdersBadge() {
 }
 /* ================= SELL ================= */
 let sellCategoryFilter = 'All';
-let sellScanSuggestions = [];
+let sellCustomerQuery = '';
+let sellNeedsCustomerFocus = false;
 function computeSellTotals() {
   const subtotal = STATE.sellCart.reduce((s, it) => s + it.qty * it.price, 0);
   const rawDiscount = STATE.sellDiscountType === 'percent'
@@ -37,28 +38,23 @@ function renderSell() {
       <button data-type="memo" class="${STATE.sellType === 'memo' ? 'active' : ''}">Credit Memo</button>
       <button data-type="quote" class="${STATE.sellType === 'quote' ? 'active' : ''}">Quotation</button>
     </div>
-    <div class="pill-filters">${cats.map((cat) => `<button data-cat="${escapeHtml(cat)}" class="${cat === sellCategoryFilter ? 'active' : ''}">${escapeHtml(cat)}</button>`).join('')}</div>
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <input style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px" id="sell-search" placeholder="Search products...">
-      <button class="btn small secondary" id="sell-scan-bill">📷 Scan Old Bill</button>
-    </div>
-    <input type="file" accept="image/*" capture="environment" id="sell-scan-input" class="hidden">
-    ${sellScanSuggestions.length === 0 ? '' : `
-      <div class="section-title"><h3 style="color:var(--gold-dark)">AI suggested — check before saving</h3></div>
-      ${sellScanSuggestions.map((s, idx) => `
-        <div class="list-row" style="border-color:var(--gold)">
-          <div><div class="title">${escapeHtml(s.name || '(unreadable name)')}</div>
-            <div class="sub">${s.quantity === null || s.quantity === undefined ? 'Qty: ?' : 'Qty: ' + s.quantity} · ${s.price === null || s.price === undefined ? 'Price: ?' : 'Price: ' + money(s.price)}</div></div>
-          <div style="display:flex;gap:8px">
-            <button class="btn small" data-bs-add="${idx}">Review & Add</button>
-            <button class="btn small secondary" data-bs-discard="${idx}">Discard</button>
-          </div>
+    <div class="card" id="sell-customer-card">
+      <div class="field dropdown-wrap"><label>Customer ${STATE.sellPayment === 'credit' && STATE.sellType !== 'quote' ? '(required for credit)' : '(optional — leave blank for walk-in)'}</label>
+        ${customer ? '' : `<input id="sell-customer-search" placeholder="Search name or phone..." value="${escapeHtml(sellCustomerQuery)}" autocomplete="off">
+        <div id="sell-customer-results" class="dropdown-panel"></div>`}
+      </div>
+      ${customer ? `
+        <div class="list-row" style="border-color:var(--accent)">
+          <div><div class="title">${escapeHtml(customer.name)}</div><div class="sub">${escapeHtml(customer.phone || '')}</div></div>
+          <button class="btn small secondary" id="sell-customer-clear">Change</button>
         </div>
-      `).join('')}
-    `}
+      ` : ''}
+    </div>
+    <div class="pill-filters">${cats.map((cat) => `<button data-cat="${escapeHtml(cat)}" class="${cat === sellCategoryFilter ? 'active' : ''}">${escapeHtml(cat)}</button>`).join('')}</div>
+    <input style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px" id="sell-search" placeholder="Search products...">
     <div class="grid sell-grid" id="sell-product-grid">
       ${list.length === 0 ? '<div class="empty-state">No products in stock.</div>' : list.map((p) => `
-        <div class="card sell-tile" data-id="${p.id}" style="cursor:pointer">
+        <div class="card sell-tile" data-id="${p.id}" data-name="${escapeHtml(p.name.toLowerCase())}" style="cursor:pointer">
           ${p.photo ? `<img class="sell-tile-photo" src="${p.photo}">` : `<div class="sell-tile-photo"></div>`}
           <div style="font-weight:600">${escapeHtml(p.name)}</div>
           <div class="sub" style="color:var(--ink-soft);font-size:0.85rem">${escapeHtml(p.category)}</div>
@@ -69,7 +65,13 @@ function renderSell() {
     <div class="section-title"><h3>Cart</h3></div>
     ${STATE.sellCart.length === 0 ? '<div class="empty-state">Cart is empty.</div>' :
       STATE.sellCart.map((it, idx) => `
-      <div class="list-row"><div><div class="title">${escapeHtml(it.name)}</div><div class="sub">${money(it.price)} each</div></div>
+      <div class="list-row">
+        <div><div class="title">${escapeHtml(it.name)}</div>
+          <div class="sub" style="display:flex;align-items:center;gap:4px">Rs.
+            <input type="number" min="0" step="0.01" class="cart-price-input" data-priceidx="${idx}" value="${it.price}" style="width:80px;padding:2px 4px;border:1px solid var(--line);border-radius:4px">
+            each
+          </div>
+        </div>
         <div style="display:flex;align-items:center;gap:8px">
           <button class="btn small secondary" data-qtyminus="${idx}">-</button>
           <span>${it.qty}</span>
@@ -80,13 +82,6 @@ function renderSell() {
       </div>`).join('')}
 
     <div class="card" style="margin-top:10px">
-      <div class="field"><label>Customer ${STATE.sellPayment === 'credit' && STATE.sellType !== 'quote' ? '(required for credit)' : '(optional)'}</label>
-        <select id="sell-customer">
-          <option value="">Walk-in</option>
-          ${STATE.customers.map((cu) => `<option value="${cu.id}" ${STATE.sellCustomerId === cu.id ? 'selected' : ''}>${escapeHtml(cu.name)}</option>`).join('')}
-          <option value="__new__">+ Add new customer</option>
-        </select>
-      </div>
       <div class="field"><label>Discount</label>
         <div style="display:flex;gap:8px">
           <input type="number" min="0" step="0.01" id="sell-discount-value" value="${STATE.sellDiscountValue || ''}" placeholder="0" style="flex:1">
@@ -151,30 +146,124 @@ function renderSell() {
   });
   document.getElementById('sell-search').oninput = (e) => {
     const q = e.target.value.toLowerCase();
-    document.querySelectorAll('#sell-product-grid .card').forEach((card) => {
-      const name = card.querySelector('div').textContent.toLowerCase();
-      card.style.display = name.includes(q) ? '' : 'none';
+    document.querySelectorAll('#sell-product-grid .sell-tile').forEach((card) => {
+      card.style.display = card.dataset.name.includes(q) ? '' : 'none';
     });
   };
-  document.querySelectorAll('#sell-product-grid .card').forEach((el) => {
-    el.onclick = () => addToCart(el.dataset.id);
+  document.getElementById('sell-search').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const visible = Array.from(document.querySelectorAll('#sell-product-grid .sell-tile')).filter((card) => card.style.display !== 'none');
+    if (visible.length === 1) { addToCart(visible[0].dataset.id); e.target.value = ''; e.target.dispatchEvent(new Event('input')); }
   });
-  document.getElementById('sell-scan-bill').onclick = startBillScan;
-  document.getElementById('sell-scan-input').onchange = handleBillScanFile;
-  c.querySelectorAll('[data-bs-add]').forEach((b) => {
-    b.onclick = () => reviewBillSuggestion(parseInt(b.dataset.bsAdd, 10));
-  });
-  c.querySelectorAll('[data-bs-discard]').forEach((b) => {
-    b.onclick = () => { sellScanSuggestions.splice(parseInt(b.dataset.bsDiscard, 10), 1); renderSell(); };
-  });
+  // Delegated so re-renders (adding items, filtering) never lose the tap/click binding.
+  c.onclick = (e) => {
+    const tile = e.target.closest('.sell-tile');
+    if (tile) addToCart(tile.dataset.id);
+  };
   c.querySelectorAll('[data-qtyminus]').forEach((b) => b.onclick = () => { adjustQty(parseInt(b.dataset.qtyminus, 10), -1); });
   c.querySelectorAll('[data-qtyplus]').forEach((b) => b.onclick = () => { adjustQty(parseInt(b.dataset.qtyplus, 10), 1); });
   c.querySelectorAll('[data-remove]').forEach((b) => b.onclick = () => { STATE.sellCart.splice(parseInt(b.dataset.remove, 10), 1); renderSell(); });
-  document.getElementById('sell-customer').onchange = (e) => {
-    if (e.target.value === '__new__') { e.target.value = STATE.sellCustomerId || ''; openQuickAddCustomer(); return; }
-    STATE.sellCustomerId = e.target.value || null;
-  };
+  c.querySelectorAll('.cart-price-input').forEach((el) => {
+    el.onclick = (e) => e.stopPropagation();
+    el.onchange = (e) => {
+      const price = parseFloat(e.target.value);
+      STATE.sellCart[parseInt(e.target.dataset.priceidx, 10)].price = isNaN(price) || price < 0 ? 0 : price;
+      renderSell();
+    };
+  });
+  setupSellCustomerField(customer);
   document.getElementById('sell-complete').onclick = completeSale;
+
+  if (sellNeedsCustomerFocus) {
+    sellNeedsCustomerFocus = false;
+    const el = document.getElementById('sell-customer-search');
+    if (el) el.focus(); else focusItemSearch();
+  }
+}
+function focusItemSearch() {
+  const el = document.getElementById('sell-search');
+  if (el) el.focus();
+}
+function matchSellCustomers(q) {
+  const query = q.trim().toLowerCase();
+  if (!query) return [];
+  return STATE.customers.filter((cu) => cu.name.toLowerCase().includes(query) || (cu.phone || '').includes(q.trim()));
+}
+function setupSellCustomerField(customer) {
+  if (customer) {
+    document.getElementById('sell-customer-clear').onclick = () => {
+      STATE.sellCustomerId = null;
+      sellCustomerQuery = '';
+      renderSell();
+      focusItemSearch();
+    };
+    return;
+  }
+  const input = document.getElementById('sell-customer-search');
+  if (!input) return;
+  input.oninput = (e) => {
+    sellCustomerQuery = e.target.value;
+    renderSellCustomerResults(e.target.value);
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const q = e.target.value.trim();
+    if (!q) { focusItemSearch(); return; }
+    const results = matchSellCustomers(q);
+    if (results.length === 1) { selectSellCustomer(results[0].id); return; }
+    const nameInput = document.getElementById('sell-newcust-name');
+    if (nameInput) nameInput.focus();
+  });
+  renderSellCustomerResults(sellCustomerQuery);
+}
+function renderSellCustomerResults(query) {
+  const resultsEl = document.getElementById('sell-customer-results');
+  if (!resultsEl) return;
+  if (!query.trim()) { resultsEl.innerHTML = ''; return; }
+  const results = matchSellCustomers(query);
+  if (results.length) {
+    resultsEl.innerHTML = results.map((cu) => `<div class="list-row" data-id="${cu.id}" style="cursor:pointer"><div><div class="title">${escapeHtml(cu.name)}</div><div class="sub">${escapeHtml(cu.phone || '')}</div></div></div>`).join('');
+    resultsEl.querySelectorAll('[data-id]').forEach((el) => {
+      el.onclick = () => selectSellCustomer(el.dataset.id);
+    });
+    return;
+  }
+  resultsEl.innerHTML = `
+    <div class="list-row" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div class="sub">No match — add new customer</div>
+      <input id="sell-newcust-name" placeholder="Name" value="${escapeHtml(query.trim())}">
+      <input id="sell-newcust-phone" placeholder="Phone" type="tel">
+      <button class="btn small" id="sell-newcust-save">Add & Continue</button>
+    </div>`;
+  document.getElementById('sell-newcust-save').onclick = saveInlineSellCustomer;
+  ['sell-newcust-name', 'sell-newcust-phone'].forEach((id) => {
+    document.getElementById(id).addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      saveInlineSellCustomer();
+    });
+  });
+}
+function selectSellCustomer(id) {
+  STATE.sellCustomerId = id;
+  sellCustomerQuery = '';
+  renderSell();
+  focusItemSearch();
+}
+async function saveInlineSellCustomer() {
+  const name = document.getElementById('sell-newcust-name').value.trim();
+  const phone = document.getElementById('sell-newcust-phone').value.trim();
+  if (!name) { toast('Name is required'); return; }
+  if (!phone) { toast('Phone is required'); return; }
+  const cust = { id: uid('C'), name, phone, address: '', dues: 0, ledger: [] };
+  STATE.customers.push(cust);
+  await saveKey('customers');
+  STATE.sellCustomerId = cust.id;
+  sellCustomerQuery = '';
+  renderSell();
+  focusItemSearch();
 }
 function bankDetailsText() {
   const b = STATE.settings.bankDetails || {};
@@ -218,135 +307,8 @@ function adjustQty(idx, delta) {
   it.qty = newQty;
   renderSell();
 }
-function openQuickAddCustomer() {
-  openModal(`
-    <h3>New Customer</h3>
-    <div class="field"><label>Name</label><input id="qc-name"></div>
-    <div class="field"><label>Phone</label><input id="qc-phone"></div>
-    <div class="field"><label>Address</label><input id="qc-address"></div>
-    <div class="modal-actions">
-      <button class="btn secondary" id="qc-cancel">Cancel</button>
-      <button class="btn" id="qc-save">Save</button>
-    </div>
-  `);
-  document.getElementById('qc-cancel').onclick = closeModal;
-  document.getElementById('qc-save').onclick = async () => {
-    const name = document.getElementById('qc-name').value.trim();
-    if (!name) { toast('Name is required'); return; }
-    const cust = {
-      id: uid('C'), name, phone: document.getElementById('qc-phone').value.trim(),
-      address: document.getElementById('qc-address').value.trim(), dues: 0, ledger: []
-    };
-    STATE.customers.push(cust);
-    await saveKey('customers');
-    STATE.sellCustomerId = cust.id;
-    closeModal();
-    renderSell();
-  };
-}
-async function startBillScan() {
-  if (STATE.secretsStatus === null) {
-    try {
-      const res = await fetch('/api/grn-scan/status');
-      const data = await res.json();
-      STATE.secretsStatus = { configured: !!data.configured };
-    } catch (e) {
-      STATE.secretsStatus = { configured: false };
-    }
-  }
-  if (!STATE.secretsStatus.configured) {
-    showScanSetupModal('bill');
-    return;
-  }
-  document.getElementById('sell-scan-input').click();
-}
-function handleBillScanFile(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  compressImage(file, 1024, async (dataUrl) => {
-    const base64 = dataUrl.split(',')[1];
-    toast('Scanning bill...');
-    try {
-      const res = await fetch('/api/bill-scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mediaType: 'image/jpeg' })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (data.error === 'not_configured') {
-          STATE.secretsStatus = { configured: false };
-          showScanSetupModal('bill');
-          return;
-        }
-        toast(data.message || 'Scan failed');
-        return;
-      }
-      if (!data.lines || data.lines.length === 0) {
-        toast('Could not read any products from that photo.');
-        return;
-      }
-      sellScanSuggestions = sellScanSuggestions.concat(data.lines);
-      renderSell();
-      toast(`Found ${data.lines.length} possible line(s) — review before adding`);
-    } catch (err) {
-      toast('Could not reach the server for scanning.');
-    } finally {
-      e.target.value = '';
-    }
-  });
-}
-function reviewBillSuggestion(idx) {
-  const s = sellScanSuggestions[idx];
-  let matchedProduct = null;
-  openModal(`
-    <h3>Review scanned line</h3>
-    <div class="field"><label>Match to product</label><input id="bs-search" placeholder="Search products..." value="${escapeHtml(s.name || '')}"></div>
-    <div id="bs-results"></div>
-    <div class="row">
-      <div class="field"><label>Qty</label><input type="number" id="bs-qty" value="${s.quantity !== null && s.quantity !== undefined ? s.quantity : 1}"></div>
-      <div class="field"><label>Price</label><input type="number" step="0.01" id="bs-price" value="${s.price !== null && s.price !== undefined ? s.price : ''}"></div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn secondary" id="bs-cancel">Cancel</button>
-      <button class="btn" id="bs-addcart">Add to Cart</button>
-      <button class="btn danger" id="bs-discard">Discard line</button>
-    </div>
-  `);
-  const renderResults = (q) => {
-    const results = q ? STATE.products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase())) : [];
-    document.getElementById('bs-results').innerHTML = results.map((p) => `<div class="list-row" data-id="${p.id}"><div><div class="title">${escapeHtml(p.name)}</div><div class="sub">${escapeHtml(p.category)} · stock ${p.stock}</div></div></div>`).join('');
-    document.querySelectorAll('#bs-results [data-id]').forEach((el) => {
-      el.onclick = () => {
-        matchedProduct = STATE.products.find((p) => p.id === el.dataset.id);
-        document.getElementById('bs-search').value = matchedProduct.name;
-        document.getElementById('bs-results').innerHTML = '';
-        if (!document.getElementById('bs-price').value) document.getElementById('bs-price').value = matchedProduct.sellingPrice;
-      };
-    });
-  };
-  document.getElementById('bs-search').oninput = (e) => { matchedProduct = null; renderResults(e.target.value.trim()); };
-  renderResults(s.name || '');
-  document.getElementById('bs-cancel').onclick = closeModal;
-  document.getElementById('bs-discard').onclick = () => { sellScanSuggestions.splice(idx, 1); closeModal(); renderSell(); };
-  document.getElementById('bs-addcart').onclick = () => {
-    if (!matchedProduct) { toast('Search and select a matching product first'); return; }
-    const qty = parseInt(document.getElementById('bs-qty').value, 10) || 1;
-    const price = parseFloat(document.getElementById('bs-price').value) || matchedProduct.sellingPrice;
-    if (qty > matchedProduct.stock) { toast('Not enough stock'); return; }
-    const existing = STATE.sellCart.find((it) => it.productId === matchedProduct.id);
-    if (existing) existing.qty += qty;
-    else STATE.sellCart.push({ productId: matchedProduct.id, name: matchedProduct.name, qty, price, cost: matchedProduct.costPrice });
-    sellScanSuggestions.splice(idx, 1);
-    closeModal();
-    renderSell();
-    toast('Added to cart');
-  };
-}
 function nextBillNumber() {
-  const start = parseInt(STATE.settings.startingBillNumber, 10) || 1;
-  const count = STATE.bills.filter((b) => b.type !== 'quote').length;
-  return `INV-${String(start + count).padStart(4, '0')}`;
+  return nextNumber('bill', 'INV', STATE.settings.startingBillNumber);
 }
 async function completeSale() {
   if (STATE.sellCart.length === 0) return;
@@ -359,7 +321,7 @@ async function completeSale() {
   const dueDate = plan ? addDaysISO(plan.days) : null;
   const bill = {
     id: uid('B'),
-    number: isQuote ? nextNumber(STATE.bills.filter((b) => b.type === 'quote'), 'QUO') : nextBillNumber(),
+    number: isQuote ? nextNumber('quote', 'QUO') : nextBillNumber(),
     type: STATE.sellType,
     date: todayISO(), time: nowTimeStr(),
     customerId: customer ? customer.id : null, customerName: customer ? customer.name : 'Walk-in',
@@ -386,14 +348,16 @@ async function completeSale() {
   }
   await Promise.all([
     saveKey('bills'),
+    saveKey('settings'),
     isQuote ? Promise.resolve() : saveKey('products'),
     (!isQuote && customer) ? saveKey('customers') : Promise.resolve()
   ]);
   STATE.sellCart = [];
   STATE.sellCustomerId = null;
+  sellCustomerQuery = '';
+  sellNeedsCustomerFocus = true;
   STATE.sellDiscountValue = 0;
   STATE.sellPaymentPlanIdx = 0;
-  sellScanSuggestions = [];
   showReceipt(bill);
   renderSell();
 }
@@ -423,9 +387,12 @@ function showReceipt(bill) {
   const lines = bill.items.map((it) => `*${it.name}* x${it.qty} = ${money(it.qty * it.price)}`).join('\n');
   const upsells = bill.type === 'quote' ? [] : suggestUpsellProducts(bill);
   const upsellText = upsells.length ? `\n\n✨ *You might also like* ✨\n${upsells.map((p) => `⭐ ${p.name} — ${money(p.sellingPrice)}`).join('\n')}` : '';
+  const discountPercentLabel = bill.discountType === 'percent' && bill.discountValue
+    ? ` (${bill.discountValue}% off)`
+    : (subtotal > 0 ? ` (${Math.round((discountAmount / subtotal) * 100)}% off)` : '');
   const summaryLines = [
     discountAmount > 0 ? `Subtotal: ${money(subtotal)}` : null,
-    discountAmount > 0 ? `Discount: -${money(discountAmount)}` : null,
+    discountAmount > 0 ? `🎉 You saved: ${money(discountAmount)}${discountPercentLabel}` : null,
     `*Total: ${money(bill.total)}*`,
     bill.paymentType ? `Payment: ${bill.paymentType}` : null,
     !bill.paymentType ? null : `Paid: ${money(bill.paid)}`,
@@ -462,7 +429,11 @@ function showReceipt(bill) {
     <button class="btn secondary block" style="margin-top:10px" id="rc-close">Close</button>
   `);
   document.getElementById('rc-print').onclick = () => window.print();
-  document.getElementById('rc-close').onclick = closeModal;
+  document.getElementById('rc-close').onclick = () => {
+    closeModal();
+    const el = document.getElementById('sell-customer-search');
+    if (el) el.focus(); else focusItemSearch();
+  };
 }
 
 function showPendingOrders() {
@@ -526,7 +497,7 @@ function reviewOrder(orderId) {
       if (p) p.stock -= it.qty;
     });
     o.status = 'confirmed';
-    await Promise.all([saveKey('bills'), saveKey('products'), saveKey('orders')]);
+    await Promise.all([saveKey('bills'), saveKey('settings'), saveKey('products'), saveKey('orders')]);
     closeModal();
     renderOnlineOrdersBadge();
     toast('Order confirmed and billed');

@@ -41,8 +41,11 @@ stops responding until you start it again).
 - Hard-guards on complaint/refund/cancel/angry/payment-dispute language:
   skips the AI entirely and hands that chat to a human.
 - The moment Nushra sends a real message into a chat from her own
-  phone, the assistant stops replying to that conversation for good —
-  no re-engaging automatically.
+  phone, the assistant stops replying to that conversation. To hand it
+  back to the assistant, type **"AI on"** into that same chat (from
+  either Nushra's or Ajmal's linked device) — nothing else re-engages
+  it automatically. This is just the default wake phrase; change
+  `WAKE_PHRASE` in `guards.js` if Ajmal wants different wording.
 - Every message (both directions) is logged and visible in the
   internal app under **Messages**.
 
