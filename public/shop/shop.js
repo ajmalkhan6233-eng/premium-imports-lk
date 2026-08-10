@@ -73,6 +73,7 @@ async function boot() {
     return;
   }
   document.title = SHOP.settings.shopName || 'Premium Imports LK';
+  startAmbientBackground('particleBg');
   renderFilters();
   renderGrid();
   updateCartCount();
