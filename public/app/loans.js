@@ -1,5 +1,6 @@
 /* ================= LOANS ================= */
 let selectedLenderId = null;
+let lenderLedgerView = 'credit'; // 'credit' (loans given) | 'debit' (repayments) — display split only, ledger array itself stays mixed
 
 function renderLoans() {
   const c = document.getElementById('pageContent');
@@ -27,7 +28,7 @@ function renderLoans() {
   document.getElementById('addLoanBtn').onclick = () => openAddLoanForm();
   document.getElementById('addLenderBtn').onclick = () => openLenderForm(null);
   c.querySelectorAll('.split-list .list-row').forEach((el) => {
-    el.onclick = () => { selectedLenderId = el.dataset.id; renderLoans(); };
+    el.onclick = () => { selectedLenderId = el.dataset.id; lenderLedgerView = 'credit'; renderLoans(); };
   });
   bindLenderDetailEvents();
 }
@@ -35,6 +36,7 @@ function renderLoans() {
 // since dashboard.js's Loans-outstanding breakdown navigates here by id.
 function openLenderLedger(id) {
   selectedLenderId = id;
+  lenderLedgerView = 'credit';
   renderLoans();
 }
 
@@ -61,14 +63,23 @@ function renderLenderDetailHtml() {
     <div class="section-title"><h3>Balance over time</h3></div>
     <div class="card">${renderLedgerChartSvg(l.ledger)}</div>
     <div class="section-title"><h3>Ledger</h3></div>
-    ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
-      sorted.map((l2) => `
-        <div class="list-row" style="cursor:default">
-          <div><div class="title">${l2.type === 'loan' ? 'Loan Given' : 'Repayment'}${l2.method ? ' (' + escapeHtml(l2.method) + ')' : ''}</div>
-            <div class="sub">${fmtDate(l2.date)} ${l2.note ? '· ' + escapeHtml(l2.note) : ''}</div></div>
-          <div style="text-align:right"><strong>${l2.type === 'payment' ? '-' : '+'}${money(l2.amount)}</strong>${l2.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l2.balanceAfter)}</div>` : ''}</div>
-        </div>`).join('')}
+    <div class="toggle-group" id="lenderLedgerTabs">
+      <button data-view="credit" class="${lenderLedgerView === 'credit' ? 'active' : ''}">Credit — Given (${money(l.given)})</button>
+      <button data-view="debit" class="${lenderLedgerView === 'debit' ? 'active' : ''}">Debit — Repaid (${money(l.repaid)})</button>
+    </div>
+    ${renderLenderLedgerList(sorted)}
   `;
+}
+function renderLenderLedgerList(sorted) {
+  const wantType = lenderLedgerView === 'debit' ? 'payment' : 'loan';
+  const entries = sorted.filter((l2) => l2.type === wantType);
+  if (entries.length === 0) return `<div class="empty-state">No ${lenderLedgerView === 'debit' ? 'repayments' : 'loans given'} yet.</div>`;
+  return entries.map((l2) => `
+    <div class="list-row" style="cursor:default">
+      <div><div class="title">${l2.type === 'loan' ? 'Loan Given' : 'Repayment'}${l2.method ? ' (' + escapeHtml(l2.method) + ')' : ''}</div>
+        <div class="sub">${fmtDate(l2.date)} ${l2.note ? '· ' + escapeHtml(l2.note) : ''}</div></div>
+      <div style="text-align:right"><strong>${l2.type === 'payment' ? '-' : '+'}${money(l2.amount)}</strong>${l2.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l2.balanceAfter)}</div>` : ''}</div>
+    </div>`).join('');
 }
 function bindLenderDetailEvents() {
   const l = selectedLenderId ? STATE.lenders.find((x) => x.id === selectedLenderId) : null;
@@ -77,6 +88,10 @@ function bindLenderDetailEvents() {
   if (editBtn) editBtn.onclick = () => openLenderForm(l.id);
   const payBtn = document.getElementById('ld-pay');
   if (payBtn) payBtn.onclick = () => openLoanPaymentForm(l.id);
+  const tabs = document.getElementById('lenderLedgerTabs');
+  if (tabs) tabs.querySelectorAll('button[data-view]').forEach((b) => {
+    b.onclick = () => { lenderLedgerView = b.dataset.view; renderLoans(); };
+  });
 }
 
 function openLenderForm(id, onSaved) {

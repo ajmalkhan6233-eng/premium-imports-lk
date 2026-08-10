@@ -37,7 +37,8 @@ function defaultData() {
         { name: 'Pay in full', days: 0 },
         { name: '5 days', days: 5 },
         { name: '1 week', days: 7 }
-      ]
+      ],
+      agingThresholdDays: 30
     },
     products: [],
     customers: [],
@@ -78,6 +79,7 @@ function backfillSettingsDefaults(settings) {
   if (settings.shopHours === undefined) { settings.shopHours = d.shopHours; changed = true; }
   if (!settings.deliveryZones) { settings.deliveryZones = d.deliveryZones; changed = true; }
   if (!settings.paymentPlans) { settings.paymentPlans = d.paymentPlans; changed = true; }
+  if (settings.agingThresholdDays === undefined) { settings.agingThresholdDays = d.agingThresholdDays; changed = true; }
   return changed;
 }
 

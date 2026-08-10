@@ -4,11 +4,12 @@ function renderProducts() {
   const c = document.getElementById('pageContent');
   const cats = ['All', ...STATE.settings.categories];
   const list = STATE.products.filter((p) => productFilter === 'All' || p.category === productFilter);
+  const agingMap = computeProductAgingDates();
   c.innerHTML = `
     <div class="pill-filters">${cats.map((cat) => `<button data-cat="${escapeHtml(cat)}" class="${cat === productFilter ? 'active' : ''}">${escapeHtml(cat)}</button>`).join('')}</div>
     ${isAdmin() ? '<button class="btn" id="addProductBtn">+ Add Product</button>' : '<p class="sub">View only — ask an Admin to add or edit products.</p>'}
     <div class="product-grid" style="margin-top:14px">
-      ${list.length === 0 ? '<div class="empty-state">No products yet.</div>' : list.map(productCardHtml).join('')}
+      ${list.length === 0 ? '<div class="empty-state">No products yet.</div>' : list.map((p) => productCardHtml(p, agingMap)).join('')}
     </div>
   `;
   c.querySelectorAll('.pill-filters button').forEach((b) => {
@@ -26,8 +27,11 @@ function renderProducts() {
     c.querySelectorAll('.product-card').forEach((el) => { el.style.cursor = 'default'; });
   }
 }
-function productCardHtml(p) {
+function productCardHtml(p, agingMap) {
   const margin = p.sellingPrice ? (((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100).toFixed(0) : '—';
+  const days = daysInStock(p.id, agingMap);
+  const threshold = STATE.settings.agingThresholdDays !== undefined ? STATE.settings.agingThresholdDays : 30;
+  const isAging = days !== null && days > threshold;
   return `<div class="card product-card" data-id="${p.id}" style="cursor:pointer">
     ${p.photo ? `<img class="product-photo" src="${p.photo}">` : `<div class="product-photo"></div>`}
     <div style="margin-top:8px;font-weight:600">${escapeHtml(p.name)}</div>
@@ -36,7 +40,10 @@ function productCardHtml(p) {
       <strong>${money(p.sellingPrice)}</strong>
       <span class="badge ${p.stock <= LOW_STOCK_THRESHOLD ? 'due' : 'ok'}">${p.stock} in stock</span>
     </div>
-    <div class="sub" style="font-size:0.8rem;color:var(--ink-soft)">Margin: ${margin}${margin !== '—' ? '%' : ''}</div>
+    <div class="sub" style="font-size:0.8rem;color:var(--ink-soft);display:flex;justify-content:space-between;align-items:center">
+      <span>Margin: ${margin}${margin !== '—' ? '%' : ''}${days !== null ? ' · Days in stock: ' + days : ''}</span>
+      ${isAging ? '<span class="badge due">Aging</span>' : ''}
+    </div>
     ${isAdmin() ? `<button class="btn small secondary block" data-edit-product="${p.id}" style="margin-top:8px">Edit</button>` : ''}
   </div>`;
 }

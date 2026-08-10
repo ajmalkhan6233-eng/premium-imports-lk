@@ -15,6 +15,7 @@ function computeMarketingSourceBreakdown() {
 function renderReports() {
   const c = document.getElementById('pageContent');
   const sourceRows = computeMarketingSourceBreakdown();
+  const agingMap = computeProductAgingDates();
   c.innerHTML = `
     <div class="grid">
       <div class="card"><h3>Sales</h3><p class="sub">All bills and credit memos</p><button class="btn small" id="rep-sales">Export CSV</button></div>
@@ -66,8 +67,12 @@ function renderReports() {
     downloadCsv(rows, `net-profit-${from || 'all'}_to_${to || 'all'}.csv`);
   };
   document.getElementById('rep-stock').onclick = () => {
-    const rows = [['Name', 'Category', 'Brand', 'Cost Price', 'Selling Price', 'Stock', 'Stock Value']];
-    STATE.products.forEach((p) => rows.push([p.name, p.category, p.brand, p.costPrice, p.sellingPrice, p.stock, (p.costPrice || 0) * (p.stock || 0)]));
+    const threshold = STATE.settings.agingThresholdDays !== undefined ? STATE.settings.agingThresholdDays : 30;
+    const rows = [['Name', 'Category', 'Brand', 'Cost Price', 'Selling Price', 'Stock', 'Stock Value', 'Days in Stock', 'Aging']];
+    STATE.products.forEach((p) => {
+      const days = daysInStock(p.id, agingMap);
+      rows.push([p.name, p.category, p.brand, p.costPrice, p.sellingPrice, p.stock, (p.costPrice || 0) * (p.stock || 0), days === null ? '' : days, (days !== null && days > threshold) ? 'Aging' : '']);
+    });
     downloadCsv(rows, 'stock.csv');
   };
   document.getElementById('rep-dues').onclick = () => {

@@ -16,6 +16,10 @@ function renderOnlineOrdersBadge() {
 let sellCategoryFilter = 'All';
 let sellCustomerQuery = '';
 let sellNeedsCustomerFocus = false;
+let sellNewCustomerFormOpen = false;
+// Sentinel id for the permanent "Cash Sale" customer-dropdown entry — not a
+// real record in STATE.customers, so it can't be edited/deleted like one.
+const CASH_SALE_ID = '__cash_sale__';
 function computeSellTotals() {
   const subtotal = STATE.sellCart.reduce((s, it) => s + it.qty * it.price, 0);
   const rawDiscount = STATE.sellDiscountType === 'percent'
@@ -29,8 +33,16 @@ function renderSell() {
   const c = document.getElementById('pageContent');
   const cats = ['All', ...STATE.settings.categories];
   const list = STATE.products.filter((p) => (sellCategoryFilter === 'All' || p.category === sellCategoryFilter) && p.stock > 0);
-  const customer = STATE.sellCustomerId ? STATE.customers.find((x) => x.id === STATE.sellCustomerId) : null;
+  const isCashSale = STATE.sellCustomerId === CASH_SALE_ID;
+  const customer = (STATE.sellCustomerId && !isCashSale) ? STATE.customers.find((x) => x.id === STATE.sellCustomerId) : null;
+  const chosenDisplay = customer ? { name: customer.name, sub: customer.phone || '' }
+    : isCashSale ? { name: 'Cash Sale', sub: 'No name or phone needed' }
+    : null;
+  const itemsGated = !chosenDisplay;
   const { subtotal, discountAmount, total } = computeSellTotals();
+  let custLabel = 'Customer';
+  if (itemsGated) custLabel += ' — pick a customer or Cash Sale to continue';
+  else if (isCashSale && STATE.sellPayment === 'credit' && STATE.sellType !== 'quote') custLabel += " (Cash Sale can't be used for credit — pick a named customer instead)";
 
   c.innerHTML = `
     <div class="toggle-group">
@@ -39,27 +51,29 @@ function renderSell() {
       <button data-type="quote" class="${STATE.sellType === 'quote' ? 'active' : ''}">Quotation</button>
     </div>
     <div class="card" id="sell-customer-card">
-      <div class="field dropdown-wrap"><label>Customer ${STATE.sellPayment === 'credit' && STATE.sellType !== 'quote' ? '(required for credit)' : '(optional — leave blank for walk-in)'}</label>
-        ${customer ? '' : `<input id="sell-customer-search" placeholder="Search name or phone..." value="${escapeHtml(sellCustomerQuery)}" autocomplete="off">
+      <div class="field dropdown-wrap"><label>${escapeHtml(custLabel)}</label>
+        ${chosenDisplay ? '' : `<input id="sell-customer-search" placeholder="Search name or phone..." value="${escapeHtml(sellCustomerQuery)}" autocomplete="off">
         <div id="sell-customer-results" class="dropdown-panel"></div>`}
       </div>
-      ${customer ? `
+      ${chosenDisplay ? `
         <div class="list-row" style="border-color:var(--accent)">
-          <div><div class="title">${escapeHtml(customer.name)}</div><div class="sub">${escapeHtml(customer.phone || '')}</div></div>
+          <div><div class="title">${escapeHtml(chosenDisplay.name)}</div><div class="sub">${escapeHtml(chosenDisplay.sub)}</div></div>
           <button class="btn small secondary" id="sell-customer-clear">Change</button>
         </div>
       ` : ''}
     </div>
-    <div class="pill-filters">${cats.map((cat) => `<button data-cat="${escapeHtml(cat)}" class="${cat === sellCategoryFilter ? 'active' : ''}">${escapeHtml(cat)}</button>`).join('')}</div>
-    <input style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px" id="sell-search" placeholder="Search products...">
-    <div class="grid sell-grid" id="sell-product-grid">
-      ${list.length === 0 ? '<div class="empty-state">No products in stock.</div>' : list.map((p) => `
-        <div class="card sell-tile" data-id="${p.id}" data-name="${escapeHtml(p.name.toLowerCase())}" style="cursor:pointer">
-          ${p.photo ? `<img class="sell-tile-photo" src="${p.photo}">` : `<div class="sell-tile-photo"></div>`}
-          <div style="font-weight:600">${escapeHtml(p.name)}</div>
-          <div class="sub" style="color:var(--ink-soft);font-size:0.85rem">${escapeHtml(p.category)}</div>
-          <div style="margin-top:6px;display:flex;justify-content:space-between"><strong>${money(p.sellingPrice)}</strong><span class="badge">${p.stock} left</span></div>
-        </div>`).join('')}
+    <div class="sell-items-area${itemsGated ? ' gated' : ''}">
+      <div class="pill-filters">${cats.map((cat) => `<button data-cat="${escapeHtml(cat)}" class="${cat === sellCategoryFilter ? 'active' : ''}" ${itemsGated ? 'disabled' : ''}>${escapeHtml(cat)}</button>`).join('')}</div>
+      <input style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px" id="sell-search" placeholder="Search products..." ${itemsGated ? 'disabled' : ''}>
+      <div class="grid sell-grid" id="sell-product-grid">
+        ${list.length === 0 ? '<div class="empty-state">No products in stock.</div>' : list.map((p) => `
+          <div class="card sell-tile" data-id="${p.id}" data-name="${escapeHtml(p.name.toLowerCase())}" style="cursor:pointer">
+            ${p.photo ? `<img class="sell-tile-photo" src="${p.photo}">` : `<div class="sell-tile-photo"></div>`}
+            <div style="font-weight:600">${escapeHtml(p.name)}</div>
+            <div class="sub" style="color:var(--ink-soft);font-size:0.85rem">${escapeHtml(p.category)}</div>
+            <div style="margin-top:6px;display:flex;justify-content:space-between"><strong>${money(p.sellingPrice)}</strong><span class="badge ${p.stock <= LOW_STOCK_THRESHOLD ? 'due' : ''}">${p.stock} left${p.stock <= LOW_STOCK_THRESHOLD ? ' ⚠' : ''}</span></div>
+          </div>`).join('')}
+      </div>
     </div>
 
     <div class="section-title"><h3>Cart</h3></div>
@@ -157,7 +171,9 @@ function renderSell() {
     if (visible.length === 1) { addToCart(visible[0].dataset.id); e.target.value = ''; e.target.dispatchEvent(new Event('input')); }
   });
   // Delegated so re-renders (adding items, filtering) never lose the tap/click binding.
+  // itemsGated also guards here in case CSS pointer-events is bypassed (e.g. touch).
   c.onclick = (e) => {
+    if (itemsGated) return;
     const tile = e.target.closest('.sell-tile');
     if (tile) addToCart(tile.dataset.id);
   };
@@ -172,7 +188,7 @@ function renderSell() {
       renderSell();
     };
   });
-  setupSellCustomerField(customer);
+  setupSellCustomerField(chosenDisplay);
   document.getElementById('sell-complete').onclick = completeSale;
 
   if (sellNeedsCustomerFocus) {
@@ -190,13 +206,33 @@ function matchSellCustomers(q) {
   if (!query) return [];
   return STATE.customers.filter((cu) => cu.name.toLowerCase().includes(query) || (cu.phone || '').includes(q.trim()));
 }
-function setupSellCustomerField(customer) {
-  if (customer) {
+// Most-recently-billed customers, newest first, deduped — shown when the
+// dropdown is opened with nothing typed yet, so repeat sales are one tap.
+function recentSellCustomers(limit) {
+  const seen = new Set();
+  const out = [];
+  const sorted = [...STATE.bills]
+    .filter((b) => b.customerId)
+    .sort((a, b) => (b.date + (b.time || '')).localeCompare(a.date + (a.time || '')));
+  for (const b of sorted) {
+    if (seen.has(b.customerId)) continue;
+    const cu = STATE.customers.find((x) => x.id === b.customerId);
+    if (!cu) continue;
+    seen.add(b.customerId);
+    out.push(cu);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+function setupSellCustomerField(chosenDisplay) {
+  sellNewCustomerFormOpen = false;
+  if (chosenDisplay) {
     document.getElementById('sell-customer-clear').onclick = () => {
       STATE.sellCustomerId = null;
       sellCustomerQuery = '';
       renderSell();
-      focusItemSearch();
+      const el = document.getElementById('sell-customer-search');
+      if (el) el.focus();
     };
     return;
   }
@@ -210,32 +246,45 @@ function setupSellCustomerField(customer) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     const q = e.target.value.trim();
-    if (!q) { focusItemSearch(); return; }
+    if (!q) return; // customer step can no longer be skipped by pressing Enter on empty
     const results = matchSellCustomers(q);
     if (results.length === 1) { selectSellCustomer(results[0].id); return; }
     const nameInput = document.getElementById('sell-newcust-name');
-    if (nameInput) nameInput.focus();
+    if (nameInput) nameInput.focus(); else toggleNewCustomerForm(q);
   });
   renderSellCustomerResults(sellCustomerQuery);
 }
 function renderSellCustomerResults(query) {
   const resultsEl = document.getElementById('sell-customer-results');
   if (!resultsEl) return;
-  if (!query.trim()) { resultsEl.innerHTML = ''; return; }
-  const results = matchSellCustomers(query);
-  if (results.length) {
-    resultsEl.innerHTML = results.map((cu) => `<div class="list-row" data-id="${cu.id}" style="cursor:pointer"><div><div class="title">${escapeHtml(cu.name)}</div><div class="sub">${escapeHtml(cu.phone || '')}</div></div></div>`).join('');
-    resultsEl.querySelectorAll('[data-id]').forEach((el) => {
-      el.onclick = () => selectSellCustomer(el.dataset.id);
-    });
-    return;
-  }
-  resultsEl.innerHTML = `
-    <div class="list-row" style="flex-direction:column;align-items:stretch;gap:8px">
-      <div class="sub">No match — add new customer</div>
-      <input id="sell-newcust-name" placeholder="Name" value="${escapeHtml(query.trim())}">
+  const q = query.trim();
+  const matches = q ? matchSellCustomers(q) : recentSellCustomers(5);
+  const pinnedHtml = `
+    <div class="list-row" id="sell-cust-cashsale" style="cursor:pointer;border-color:var(--accent)"><div class="title">\u{1F4B5} Cash Sale</div></div>
+    <div class="list-row" id="sell-cust-addnew" style="cursor:pointer"><div class="title">+ New Customer</div></div>
+    <div id="sell-cust-addnew-form"></div>`;
+  const listHtml = matches.length
+    ? (q ? '' : '<div class="sub" style="padding:4px 6px">Recent</div>') +
+      matches.map((cu) => `<div class="list-row" data-id="${cu.id}" style="cursor:pointer"><div><div class="title">${escapeHtml(cu.name)}</div><div class="sub">${escapeHtml(cu.phone || '')}</div></div></div>`).join('')
+    : (q ? '<div class="sub" style="padding:4px 6px">No match</div>' : '');
+  resultsEl.innerHTML = pinnedHtml + listHtml;
+  resultsEl.querySelectorAll('[data-id]').forEach((el) => {
+    el.onclick = () => selectSellCustomer(el.dataset.id);
+  });
+  document.getElementById('sell-cust-cashsale').onclick = () => selectSellCustomer(CASH_SALE_ID);
+  document.getElementById('sell-cust-addnew').onclick = () => toggleNewCustomerForm(q);
+  // Auto-open the add form on a typed query with zero matches (old
+  // no-match behavior), on top of the persistent manual toggle above.
+  if (sellNewCustomerFormOpen || (q && matches.length === 0)) renderNewCustomerForm(q);
+}
+function renderNewCustomerForm(prefillName) {
+  const area = document.getElementById('sell-cust-addnew-form');
+  if (!area) return;
+  area.innerHTML = `
+    <div class="list-row" style="flex-direction:column;align-items:stretch;gap:8px;cursor:default">
+      <input id="sell-newcust-name" placeholder="Name" value="${escapeHtml(prefillName || '')}">
       <input id="sell-newcust-phone" placeholder="Phone" type="tel">
-      <button class="btn small" id="sell-newcust-save">Add & Continue</button>
+      <button class="btn small" id="sell-newcust-save">Save & Select</button>
     </div>`;
   document.getElementById('sell-newcust-save').onclick = saveInlineSellCustomer;
   ['sell-newcust-name', 'sell-newcust-phone'].forEach((id) => {
@@ -245,6 +294,12 @@ function renderSellCustomerResults(query) {
       saveInlineSellCustomer();
     });
   });
+}
+function toggleNewCustomerForm(prefillName) {
+  sellNewCustomerFormOpen = true;
+  renderNewCustomerForm(prefillName);
+  const nameInput = document.getElementById('sell-newcust-name');
+  if (nameInput) nameInput.focus();
 }
 function selectSellCustomer(id) {
   STATE.sellCustomerId = id;
@@ -289,6 +344,7 @@ function renderQr(targetId, text) {
   }
 }
 function addToCart(productId) {
+  if (!STATE.sellCustomerId) return; // gate: customer or Cash Sale must be chosen first
   const p = STATE.products.find((x) => x.id === productId);
   if (!p) return;
   const existing = STATE.sellCart.find((it) => it.productId === productId);
@@ -313,9 +369,12 @@ function nextBillNumber() {
 async function completeSale() {
   if (STATE.sellCart.length === 0) return;
   const isQuote = STATE.sellType === 'quote';
-  if (!isQuote && STATE.sellPayment === 'credit' && !STATE.sellCustomerId) { toast('Select a customer for credit sales'); return; }
+  const isCashSale = STATE.sellCustomerId === CASH_SALE_ID;
+  const customer = (STATE.sellCustomerId && !isCashSale) ? STATE.customers.find((x) => x.id === STATE.sellCustomerId) : null;
+  // Mirrors the item-area gate as a safety net in case it's ever bypassed.
+  if (!customer && !isCashSale) { toast('Select a customer or Cash Sale first'); return; }
+  if (!isQuote && STATE.sellPayment === 'credit' && !customer) { toast('Select a named customer for credit sales'); return; }
   const { subtotal, discountAmount, total } = computeSellTotals();
-  const customer = STATE.sellCustomerId ? STATE.customers.find((x) => x.id === STATE.sellCustomerId) : null;
   const isCredit = !isQuote && STATE.sellPayment === 'credit';
   const plan = isCredit ? (STATE.settings.paymentPlans || [])[STATE.sellPaymentPlanIdx] : null;
   const dueDate = plan ? addDaysISO(plan.days) : null;
@@ -324,7 +383,7 @@ async function completeSale() {
     number: isQuote ? nextNumber('quote', 'QUO') : nextBillNumber(),
     type: STATE.sellType,
     date: todayISO(), time: nowTimeStr(),
-    customerId: customer ? customer.id : null, customerName: customer ? customer.name : 'Walk-in',
+    customerId: customer ? customer.id : null, customerName: customer ? customer.name : (isCashSale ? 'Cash Sale' : 'Walk-in'),
     items: STATE.sellCart.map((it) => ({ productId: it.productId, name: it.name, qty: it.qty, price: it.price, cost: it.cost })),
     subtotal, discountType: STATE.sellDiscountType, discountValue: STATE.sellDiscountValue || 0, discountAmount,
     total,

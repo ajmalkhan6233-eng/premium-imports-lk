@@ -12,7 +12,7 @@ function renderSettings() {
       </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <h3>Shop</h3>
       <div class="field"><label>Shop Name</label><input id="st-shopname" value="${escapeHtml(s.shopName || '')}"></div>
       <div class="field"><label>WhatsApp Number</label><input id="st-whatsapp" value="${escapeHtml(s.whatsappNumber || '')}"></div>
@@ -20,7 +20,7 @@ function renderSettings() {
       <button class="btn small" id="st-save-shop">Save</button>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <h3>Bank Details (used for QR code)</h3>
       <div class="field"><label>Account Name</label><input id="st-accname" value="${escapeHtml(s.bankDetails.accountName || '')}"></div>
       <div class="field"><label>Account Number</label><input id="st-accno" value="${escapeHtml(s.bankDetails.accountNumber || '')}"></div>
@@ -29,7 +29,7 @@ function renderSettings() {
       <button class="btn small" id="st-save-bank">Save</button>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <h3>Categories</h3>
       <div id="st-cat-list">
         ${s.categories.map((cat, idx) => `<div class="list-row"><span>${escapeHtml(cat)}</span>
@@ -41,7 +41,7 @@ function renderSettings() {
       </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <h3>Payment Plans</h3>
       <p class="sub" style="margin-top:-6px">Offered on Credit sales, and to customers who ask the WhatsApp assistant about paying later.</p>
       <div id="st-plan-list">
@@ -55,14 +55,14 @@ function renderSettings() {
       </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <h3>WhatsApp Assistant</h3>
       <div class="field"><label>Replies as</label><input id="st-assistantname" value="${escapeHtml(s.assistantName || 'Nushra')}"></div>
       <p class="sub" style="margin-top:-6px">The assistant replies as this person — warm and familiar, not an announced bot.</p>
       <button class="btn small" id="st-save-assistant">Save</button>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <h3>Delivery Zones</h3>
       <div class="field"><label>Home base</label><input id="st-dz-base" value="${escapeHtml((s.deliveryZones && s.deliveryZones.homeBase) || '')}"></div>
       <div class="field"><label>Free delivery minimum (Rs.)</label><input type="number" min="0" step="0.01" id="st-dz-min" value="${(s.deliveryZones && s.deliveryZones.freeDeliveryMin) || 0}"></div>
@@ -71,7 +71,7 @@ function renderSettings() {
       <button class="btn small" id="st-save-delivery">Save</button>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <h3>Marketing Links</h3>
       <p class="sub" style="margin-top:-6px">Paste these into your Facebook Page's WhatsApp button and your TikTok bio. Messages that start with these exact phrases get tagged by source automatically.</p>
       <div class="field"><label>Facebook</label>
@@ -89,20 +89,27 @@ function renderSettings() {
       <p class="sub">Storefront checkout already tags its own orders as "website" — nothing to add there.</p>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <h3>Billing</h3>
       <div class="field"><label>Starting bill number</label><input type="number" min="1" id="st-startbill" value="${s.startingBillNumber || 1}"></div>
       <p class="sub" style="margin-top:-6px">Sets what number new invoices start counting from — use this to continue from an existing paper bill book instead of starting at 0001. Only affects new invoices going forward.</p>
       <button class="btn small" id="st-save-startbill">Save</button>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
+      <h3>Inventory</h3>
+      <div class="field"><label>Aging threshold (days)</label><input type="number" min="1" step="1" id="st-agingdays" value="${s.agingThresholdDays !== undefined ? s.agingThresholdDays : 30}"></div>
+      <p class="sub" style="margin-top:-6px">Products still unsold this many days after their oldest received batch get an "Aging" badge on the Products list, so slow-moving stock doesn't get forgotten. Visibility only — never changes cost price or margin.</p>
+      <button class="btn small" id="st-save-agingdays">Save</button>
+    </div>
+
+    <div class="card" style="margin-top:10px">
       <h3>Change PIN (${STATE.user})</h3>
       <div class="field"><label>New PIN</label><input type="password" id="st-newpin" maxlength="8"></div>
       <button class="btn small" id="st-savepin">Save PIN</button>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card" style="margin-top:10px">
       <h3>Manage Users</h3>
       <p class="sub" style="margin-top:-6px">AJMAL is the one Admin account and can't be removed here. Staff can use Sell, GRN, and Customers/Vendors/Loans, but can't edit or delete existing records, and can't open Settings or Reports.</p>
       <div id="st-user-list">
@@ -208,6 +215,12 @@ function renderSettings() {
       });
     };
   });
+  document.getElementById('st-save-agingdays').onclick = async () => {
+    const val = parseInt(document.getElementById('st-agingdays').value, 10);
+    s.agingThresholdDays = (!isNaN(val) && val > 0) ? val : 30;
+    await saveKey('settings');
+    toast('Saved');
+  };
   document.getElementById('st-save-startbill').onclick = async () => {
     const val = parseInt(document.getElementById('st-startbill').value, 10);
     s.startingBillNumber = (val && val > 0) ? val : 1;

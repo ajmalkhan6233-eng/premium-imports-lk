@@ -128,15 +128,46 @@ function toast(msg) {
 function closeModal() {
   document.getElementById('modalRoot').innerHTML = '';
 }
+// No close-on-outside-click (it used to silently discard whatever was typed
+// in the modal) — every modal gets one explicit X button here instead, so
+// closing is always a deliberate action, consistently across the app.
 function openModal(html) {
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-backdrop" id="modalBackdrop">
-      <div class="modal">${html}</div>
+      <div class="modal">
+        <button type="button" class="modal-close" id="modalCloseBtn" aria-label="Close">&times;</button>
+        ${html}
+      </div>
     </div>`;
-  document.getElementById('modalBackdrop').addEventListener('click', (e) => {
-    if (e.target.id === 'modalBackdrop') closeModal();
-  });
+  document.getElementById('modalCloseBtn').onclick = closeModal;
 }
+
+/* ---------------- Keyboard shortcuts ---------------- */
+// Kept deliberately small per the spec: Esc closes any open modal (works app-
+// wide, not just Sell); on the Sell screen only, Enter completes the sale and
+// "/" jumps focus to the customer field — both skipped while a text field is
+// focused so they never fight the per-field Enter handlers already in sell.js.
+function isTypingInField() {
+  const tag = document.activeElement && document.activeElement.tagName;
+  return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('modalRoot').innerHTML.trim()) closeModal();
+    return;
+  }
+  if (STATE.activeTab !== 'sell') return;
+  if (e.key === 'Enter' && !isTypingInField()) {
+    const btn = document.getElementById('sell-complete');
+    if (btn && !btn.disabled) btn.click();
+    return;
+  }
+  if (e.key === '/' && !isTypingInField()) {
+    e.preventDefault();
+    const el = document.getElementById('sell-customer-search');
+    if (el) el.focus();
+  }
+});
 
 /* ---------------- Boot ---------------- */
 async function boot() {
@@ -355,6 +386,55 @@ function renderLedgerChartSvg(ledger) {
         <span><span class="dot" style="background:var(--green)"></span> Payment received/made</span>
       </div>
     </div>`;
+}
+
+// Days-in-stock tracking (Products list + Stock report). For each product,
+// finds the date of its oldest not-yet-sold GRN batch via FIFO — GRN batches
+// consumed oldest-first by historical sales, so what's left really is the
+// oldest stock still on the shelf. Falls back to the most recent GRN date if
+// the product has never been sold yet (nothing to FIFO-consume), or no date
+// at all if it has no GRN history (e.g. legacy/manually-added stock).
+// Visibility only — never touches cost price, margin, or any profit number.
+function computeProductAgingDates() {
+  const batchesByProduct = {};
+  [...STATE.grns].sort((a, b) => a.date.localeCompare(b.date)).forEach((g) => {
+    (g.items || []).forEach((it) => {
+      if (!it.productId) return;
+      (batchesByProduct[it.productId] = batchesByProduct[it.productId] || []).push({ date: g.date, remaining: it.qty });
+    });
+  });
+  const soldByProduct = {};
+  STATE.bills.filter((b) => b.type !== 'quote').sort((a, b) => a.date.localeCompare(b.date)).forEach((b) => {
+    (b.items || []).forEach((it) => {
+      if (!it.productId) return;
+      (soldByProduct[it.productId] = soldByProduct[it.productId] || []).push(it.qty);
+    });
+  });
+  const oldestUnsoldDate = {};
+  Object.keys(batchesByProduct).forEach((productId) => {
+    const batches = batchesByProduct[productId];
+    let bIdx = 0;
+    (soldByProduct[productId] || []).forEach((qty) => {
+      let remainingToConsume = qty;
+      while (remainingToConsume > 0 && bIdx < batches.length) {
+        const batch = batches[bIdx];
+        if (batch.remaining <= 0) { bIdx++; continue; }
+        const take = Math.min(remainingToConsume, batch.remaining);
+        batch.remaining -= take;
+        remainingToConsume -= take;
+        if (batch.remaining <= 0) bIdx++;
+      }
+    });
+    const oldestRemaining = batches.find((b) => b.remaining > 0);
+    oldestUnsoldDate[productId] = oldestRemaining ? oldestRemaining.date : batches[batches.length - 1].date;
+  });
+  return oldestUnsoldDate;
+}
+function daysInStock(productId, agingMap) {
+  const map = agingMap || computeProductAgingDates();
+  const d = map[productId];
+  if (!d) return null;
+  return Math.max(0, Math.round((Date.now() - Date.parse(d)) / 86400000));
 }
 
 boot();
