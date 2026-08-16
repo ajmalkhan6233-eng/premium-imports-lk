@@ -59,6 +59,13 @@ function renderSettings() {
       <h3>WhatsApp Assistant</h3>
       <div class="field"><label>Replies as</label><input id="st-assistantname" value="${escapeHtml(s.assistantName || 'Nushra')}"></div>
       <p class="sub" style="margin-top:-6px">The assistant replies as this person — warm and familiar, not an announced bot.</p>
+      <div class="field" style="margin-top:10px"><label>Reply engine</label>
+        <div class="toggle-group" id="st-whatsapp-tier-group" style="margin-bottom:0">
+          <button data-tier="general" class="${(s.whatsappTier || 'pro') === 'general' ? 'active' : ''}">Simple FAQ (no AI)</button>
+          <button data-tier="pro" class="${(s.whatsappTier || 'pro') === 'pro' ? 'active' : ''}">Full AI Assistant</button>
+        </div>
+      </div>
+      <p class="sub" style="margin-top:6px">Simple FAQ answers hours/delivery/location/product price from a keyword match — no AI cost, but only recognizes those. Full AI Assistant is the natural-conversation assistant this shop uses today.</p>
       <button class="btn small" id="st-save-assistant">Save</button>
     </div>
 
@@ -230,8 +237,15 @@ function renderSettings() {
       renderSettings();
     };
   });
+  document.querySelectorAll('#st-whatsapp-tier-group button').forEach((btn) => {
+    btn.onclick = () => {
+      document.querySelectorAll('#st-whatsapp-tier-group button').forEach((b) => b.classList.toggle('active', b === btn));
+    };
+  });
   document.getElementById('st-save-assistant').onclick = async () => {
     s.assistantName = document.getElementById('st-assistantname').value.trim() || 'Nushra';
+    const activeTierBtn = document.querySelector('#st-whatsapp-tier-group button.active');
+    s.whatsappTier = activeTierBtn ? activeTierBtn.dataset.tier : 'pro';
     await saveKey('settings');
     toast('Saved');
   };

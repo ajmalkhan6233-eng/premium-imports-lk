@@ -30,6 +30,12 @@ function defaultData() {
       startingBillNumber: 1,
       logo: null,
       assistantName: 'Nushra',
+      // WhatsApp product concept (whatsapp-bridge/): 'general' = free-text
+      // keyword FAQ engine, no AI call (whatsapp-bridge/faqAssistant.js);
+      // 'pro' = today's real AI-grounded assistant (whatsapp-bridge/
+      // assistant.js). Defaults to 'pro' so this shop's real behavior is
+      // unchanged unless someone explicitly switches it in Settings.
+      whatsappTier: 'pro',
       shopHours: '',
       deliveryZones: {
         homeBase: 'Thihariya junction',
@@ -107,6 +113,7 @@ function backfillSettingsDefaults(settings) {
   const d = defaultData().settings;
   let changed = false;
   if (settings.assistantName === undefined) { settings.assistantName = d.assistantName; changed = true; }
+  if (settings.whatsappTier === undefined) { settings.whatsappTier = d.whatsappTier; changed = true; }
   if (settings.shopHours === undefined) { settings.shopHours = d.shopHours; changed = true; }
   if (!settings.deliveryZones) { settings.deliveryZones = d.deliveryZones; changed = true; }
   if (!settings.paymentPlans) { settings.paymentPlans = d.paymentPlans; changed = true; }
@@ -693,6 +700,50 @@ app.post('/api/grns', (req, res) => {
     vendor.balance = (vendor.purchased || 0) - (vendor.paid || 0);
     vendor.ledger = vendor.ledger || [];
     vendor.ledger.push({ id: newId('L'), type: 'grn', date: todayStamp(), amount: total, ref: grn.number, note: '', balanceAfter: vendor.balance, by: by || null });
+    saveData();
+    res.json({ ok: true, grn });
+  }).catch((e) => res.status(500).json({ error: 'server_error', message: e.message }));
+});
+
+// Voiding a GRN — same reasoning/pattern as /api/bills/:id/void: reverses
+// the real-world effects (stock added, vendor balance increased) via a
+// new reversing ledger entry, never mutates or deletes the original GRN
+// record. Stock is clamped at 0 (same clamp customer.dues void already
+// uses) since some of the received stock may have already been sold by
+// the time a mistaken GRN is caught — going negative would be a worse
+// display than "0 and flagged", not a truer number. costPrice is
+// deliberately left as this GRN set it: reverting it to some prior value
+// would need real price history tracking, not built here — flagged, not
+// silently faked.
+app.post('/api/grns/:id/void', (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  withWriteLock(() => {
+    const grn = db.grns.find((g) => g.id === req.params.id);
+    if (!grn) return res.status(404).json({ error: 'not_found', message: 'GRN not found' });
+    if (grn.status === 'voided') return res.status(400).json({ error: 'already_voided', message: 'This GRN is already voided.' });
+    const { reason } = req.body || {};
+    const by = session.user;
+
+    (grn.items || []).forEach((it) => {
+      const p = db.products.find((x) => x.id === it.productId);
+      if (p) p.stock = Math.max(0, (p.stock || 0) - it.qty);
+    });
+    const vendor = db.vendors.find((v) => v.id === grn.vendorId);
+    if (vendor) {
+      vendor.purchased = Math.max(0, (vendor.purchased || 0) - grn.total);
+      vendor.balance = (vendor.purchased || 0) - (vendor.paid || 0);
+      vendor.ledger = vendor.ledger || [];
+      vendor.ledger.push({
+        id: newId('L'), type: 'void', date: todayStamp(), amount: grn.total,
+        balanceAfter: vendor.balance, ref: grn.number,
+        note: reason ? `GRN voided: ${reason}` : 'GRN voided', by: by || null
+      });
+    }
+    grn.status = 'voided';
+    grn.voidedAt = new Date().toISOString();
+    grn.voidedBy = by || null;
+    grn.voidReason = reason ? String(reason).trim() : '';
     saveData();
     res.json({ ok: true, grn });
   }).catch((e) => res.status(500).json({ error: 'server_error', message: e.message }));

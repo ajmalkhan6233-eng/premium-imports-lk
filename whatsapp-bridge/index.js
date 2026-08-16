@@ -12,6 +12,7 @@ const { loadConversations, saveConversations, findOrCreateConversation, logMessa
 const { checkEscalation, HOLDING_REPLY, isWakePhrase } = require('./guards');
 const { checkPaymentPlanIntent, formatPlanMenu, parsePlanChoice } = require('./paymentPlan');
 const { generateReply } = require('./assistant');
+const { generateSimpleReply } = require('./faqAssistant');
 const ledger = require('./ledger');
 
 const AUTH_DIR = path.join(__dirname, 'auth');
@@ -218,7 +219,19 @@ async function handleIncoming(sock, msg) {
     return;
   }
 
-  // 3. Normal AI reply, as the assistant persona.
+  // 3. Reply — which engine depends on settings.whatsappTier (WhatsApp
+  // product concept: "general" is the deterministic, no-AI-cost tier;
+  // anything else (default, unset) keeps today's AI-grounded behavior so
+  // existing shops/tests don't change without an explicit switch.
+  if (settings.whatsappTier === 'general') {
+    const reply = generateSimpleReply({ settings, products, assistantName, incomingText: text, isFirstMessage: conv.messages.length <= 1 });
+    await sendReply(sock, jid, reply);
+    logMessage(conv, 'assistant', reply);
+    await saveConversations(list);
+    return;
+  }
+
+  // 3b. Full AI reply, as the assistant persona ("pro" tier).
   const apiKey = loadAnthropicKey();
   if (!apiKey) {
     const holding = "Sorry, give me a bit and I'll get back to you!";

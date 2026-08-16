@@ -1423,6 +1423,89 @@ reconfirmed via direct file read (bills back to 1, stock back to 0, no
 clean on every touched JS file. PM2 restarted 3 times this leg — clean,
 `/api/health` 200 each time, no crash loop.
 
+---
+
+## Machine Restart Recovery, WhatsApp General Tier, GRN Void — 2026-08-16 (new session, continuing)
+
+Computer was shut down and restarted mid-session. Picked back up: `server.js`
+and `whatsapp-bridge/index.js` had uncommitted local changes from before the
+shutdown (the WhatsApp "General tier" work, mid-progress) — confirmed via
+`git status` before touching anything, nothing lost.
+
+**PM2 crash-loop on restart, same pattern as 2026-08-14's fix**: after
+`npx pm2 start`, the process showed `waiting`/restart-count climbing.
+Root cause was identical to before — an unsupervised `node server.js`
+(PID 1764, started at boot, almost certainly via the desktop shortcut/
+startup entry, not `npm run start:pm2`) was squatting port 3005 with no
+crash protection. Killed it, PM2 took the port cleanly, confirmed
+`/api/health` 200 and stable uptime. The desktop shortcut still isn't
+fixed to launch through PM2 — flagged again, not changed (same reasoning
+as before: out of scope for this ask, Ajmal's call).
+
+**WhatsApp product concept — "General" tier, finished and verified.**
+Per Ajmal's own answers when asked: General = a simple FAQ responder
+(hours/delivery/location/product price), no AI call, no API cost; started
+from what already exists rather than a new repo. Built
+`whatsapp-bridge/faqAssistant.js` — deterministic keyword matching against
+real `settings`/`products` data (same data shape `assistant.js`'s AI
+engine already uses, so a shop can move between tiers without any other
+code changing). `settings.whatsappTier` (`'general'` | `'pro'`, defaults
+to `'pro'`) added to `defaultData()` + `backfillSettingsDefaults()`,
+`whatsapp-bridge/index.js` picks the engine per that setting, and Settings
+→ WhatsApp Assistant got a toggle for it. Verified: real `data.json`
+backfilled to `whatsappTier: "pro"` on restart (this shop's real behavior
+unchanged); toggle renders and defaults to "Full AI Assistant" correctly;
+`generateSimpleReply()` unit-tested directly with real settings/product
+shapes — hours, delivery, product-price lookup, and the graceful fallback
+all produced correct, sensible answers with zero AI cost.
+
+**Not done**: extracting a white-label/reusable version into its own repo,
+Light/Standard tiers, voice/image recognition, multi-language handbooks —
+all still ahead, per Ajmal's own "extract a reusable core first" starting
+point. The bridge's other modules (`dataClient.js`, `guards.js`,
+`conversations.js`) were already read this session and are close to
+generic as-is (no PIL-specific hardcoding beyond default fallback
+strings) — worth noting for whenever the actual extraction happens.
+
+**GRN Void — new gap found and fixed.** Ajmal: "wherever it is a data
+entry, there should be [a way] to edit it or delete it." Audited GRN
+specifically (Products/Customers/Vendors/Loans already got this earlier)
+and found it had *no* correction mechanism at all — once saved, a wrong
+GRN couldn't be fixed except by manually patching stock/vendor balance
+elsewhere. Added `POST /api/grns/:id/void` (server.js) — same pattern as
+`/api/bills/:id/void`: reverses stock (clamped at 0, since some of the
+received stock may have already sold by the time a mistake is caught —
+matches the existing dues-clamp pattern) and vendor balance via a new
+reversing ledger entry, never mutates or deletes the original GRN record.
+`costPrice` is deliberately left as this GRN set it — reverting to a
+"previous" cost would need real price-history tracking that doesn't exist,
+not faked here. Frontend: `grn.js` GRN history now shows a "Voided" badge
+and a Void button (admin-only) with a reason prompt, matching Bills' void
+flow exactly.
+
+**Verified live, not just read**: tested against the one real GRN record
+using the same backup-test-restore discipline as every data-touching
+change this session — voided it via the real API (confirmed stock
+clamped, status/voidedAt/voidedBy/voidReason set correctly, no crash
+despite a pre-existing orphaned vendor reference — see below), then
+restored `data.json` from the pre-test backup, reconfirmed byte-clean
+(no `�` corruption) and GRN status back to active.
+
+**Found in passing, not fixed**: the one real GRN record's vendor
+(`vendorId: V-msk1sbpb-326`, "chammi") no longer exists in `db.vendors` —
+`STATE.vendors` is currently empty, so this vendor was deleted at some
+point (possibly via the delete-vendor feature built earlier this session)
+without the GRN that references it being cleaned up. The new void
+endpoint already handles this gracefully (skips the vendor-side reversal
+if the vendor's gone), so nothing broke, but it's a real, pre-existing
+data inconsistency — flagged for Ajmal, not silently fixed, since
+"reconcile an orphaned reference" is a judgment call about what actually
+happened, not something to guess at.
+
+`node --check` clean on every touched file. PM2 restarted several times
+this leg (recovery, WhatsApp wiring, GRN void, test, restore) — all
+clean once the orphaned process was cleared, `/api/health` 200 throughout.
+
 **Flagged, not actioned:** mid-session Ajmal raised a separate, much
 larger idea — a white-label WhatsApp AI agent product (voice recognition,
 image recognition, 3 languages) to sell to other shops, mentioning

@@ -340,7 +340,10 @@ function renderGrnHistoryList() {
     <div class="list-row" data-grn-id="${g.id}">
       <div><div class="title">${escapeHtml(g.number)}${g.invoiceNumber ? ' — Invoice ' + escapeHtml(g.invoiceNumber) : ''}${g.attachment ? ' \u{1F4CE}' : ''}</div>
         <div class="sub">${escapeHtml(g.vendorName)} · ${fmtDate(g.date)} · ${g.items.length} item(s)</div></div>
-      <strong class="mono">${money(g.total)}</strong>
+      <div style="text-align:right;display:flex;align-items:center;gap:10px">
+        <strong class="mono">${money(g.total)}</strong>
+        ${g.status === 'voided' ? '<span class="badge voided">Voided</span>' : ''}
+      </div>
     </div>`).join('');
 }
 function bindGrnHistoryEvents() {
@@ -351,6 +354,7 @@ function bindGrnHistoryEvents() {
 function openGrnHistoryDetail(id) {
   const g = STATE.grns.find((x) => x.id === id);
   if (!g) return;
+  const canVoid = isAdmin() && g.status !== 'voided';
   openModal(`
     <h3>${escapeHtml(g.number)}</h3>
     <div class="sub">${escapeHtml(g.vendorName)} · ${fmtDate(g.date)}${g.invoiceNumber ? ' · Invoice ' + escapeHtml(g.invoiceNumber) : ''}</div>
@@ -359,10 +363,50 @@ function openGrnHistoryDetail(id) {
       ${g.items.map((it) => `<tr><td>${escapeHtml(it.name)}</td><td>${it.qty}</td><td>${money(it.cost)}</td></tr>`).join('')}
     </table>
     <div style="display:flex;justify-content:space-between;margin-top:10px"><strong>Total</strong><strong>${money(g.total)}</strong></div>
+    ${g.status === 'voided' ? `<div class="sub" style="color:var(--red)">Voided ${fmtDate((g.voidedAt || '').slice(0, 10))}${g.voidReason ? ' — ' + escapeHtml(g.voidReason) : ''}</div>` : ''}
     ${g.attachment ? `<a class="btn secondary block" style="margin-top:10px;text-decoration:none" href="${g.attachment.dataUrl}" download="${escapeHtml(g.attachment.filename)}">\u{1F4CE} View Attachment</a>` : ''}
+    ${canVoid ? `<button class="btn danger block" style="margin-top:10px" id="gh-void">Void GRN</button>` : ''}
     <button class="btn secondary block" style="margin-top:10px" id="gh-close">Close</button>
   `);
   document.getElementById('gh-close').onclick = closeModal;
+  const voidBtn = document.getElementById('gh-void');
+  if (voidBtn) voidBtn.onclick = () => voidGrnFlow(g);
+}
+// Same pattern as sell.js's voidBillFlow — reverses stock + vendor balance
+// server-side (POST /api/grns/:id/void), never mutates the original record.
+function voidGrnFlow(g) {
+  openModal(`
+    <h3>Void ${escapeHtml(g.number)}?</h3>
+    <p class="sub" style="margin-top:-6px">This removes ${g.items.length} item(s) from stock and reverses ${escapeHtml(g.vendorName)}'s balance by ${money(g.total)}. This cannot be undone.</p>
+    <div class="field"><label>Reason (optional)</label><input id="grn-void-reason" placeholder="e.g. Entered wrong vendor by mistake"></div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="grn-void-cancel">Cancel</button>
+      <button class="btn danger" id="grn-void-confirm">Void GRN</button>
+    </div>
+  `);
+  document.getElementById('grn-void-cancel').onclick = closeModal;
+  document.getElementById('grn-void-confirm').onclick = async () => {
+    const btn = document.getElementById('grn-void-confirm');
+    btn.disabled = true; btn.textContent = 'Voiding...';
+    try {
+      const res = await fetch(`/api/grns/${g.id}/void`, {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ reason: document.getElementById('grn-void-reason').value.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) { toast(data.message || 'Could not void this GRN'); btn.disabled = false; btn.textContent = 'Void GRN'; return; }
+    } catch (e) {
+      toast('Could not reach the server to void this GRN.');
+      btn.disabled = false; btn.textContent = 'Void GRN';
+      return;
+    }
+    const [grns, products, vendors] = await Promise.all([apiGet('grns'), apiGet('products'), apiGet('vendors')]);
+    STATE.grns = grns; STATE.products = products; STATE.vendors = vendors;
+    closeModal();
+    toast('GRN voided, stock and vendor balance reversed');
+    renderGRN();
+  };
 }
 // Last price this vendor actually charged for this product, from real GRN
 // history — so a price change is something Ajmal notices, not something he
