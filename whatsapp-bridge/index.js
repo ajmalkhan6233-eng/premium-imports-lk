@@ -196,8 +196,12 @@ async function handleIncoming(sock, msg) {
     return;
   }
 
-  // 2. Payment-plan structured menu (known customers only).
-  if (conv.awaitingPlanChoice) {
+  // 2. Payment-plan structured menu (known customers only, "pro" tier
+  // only — this is credit/installment logic, not something General/
+  // Light/Standard shops necessarily even offer). Was previously
+  // ungated here, so it could fire even under the no-AI General tier —
+  // fixed as part of adding the tier ladder below.
+  if (settings.whatsappTier === 'pro' && conv.awaitingPlanChoice) {
     const plan = parsePlanChoice(text, settings.paymentPlans || []);
     if (plan) {
       conv.planChoice = plan.name;
@@ -210,7 +214,7 @@ async function handleIncoming(sock, msg) {
     }
     // Not a recognized number — fall through and let the AI respond normally.
   }
-  if (checkPaymentPlanIntent(text) && conv.customerId) {
+  if (settings.whatsappTier === 'pro' && checkPaymentPlanIntent(text) && conv.customerId) {
     const menu = formatPlanMenu(settings.paymentPlans || []);
     conv.awaitingPlanChoice = true;
     await sendReply(sock, jid, menu);
@@ -219,11 +223,15 @@ async function handleIncoming(sock, msg) {
     return;
   }
 
-  // 3. Reply — which engine depends on settings.whatsappTier (WhatsApp
-  // product concept: "general" is the deterministic, no-AI-cost tier;
-  // anything else (default, unset) keeps today's AI-grounded behavior so
-  // existing shops/tests don't change without an explicit switch.
-  if (settings.whatsappTier === 'general') {
+  // 3. Reply — which engine/capabilities depend on settings.whatsappTier
+  // (WhatsApp product concept, 4 tiers): 'general' is the deterministic,
+  // no-AI-cost engine (faqAssistant.js); 'light'/'standard'/'pro' all use
+  // the real AI engine (assistant.js) but with escalating capability —
+  // see assistant.js's own comment on what each tier turns on. Defaults
+  // to 'pro' so existing shops/tests don't change without an explicit
+  // switch.
+  const tier = settings.whatsappTier || 'pro';
+  if (tier === 'general') {
     const reply = generateSimpleReply({ settings, products, assistantName, incomingText: text, isFirstMessage: conv.messages.length <= 1 });
     await sendReply(sock, jid, reply);
     logMessage(conv, 'assistant', reply);
@@ -231,7 +239,7 @@ async function handleIncoming(sock, msg) {
     return;
   }
 
-  // 3b. Full AI reply, as the assistant persona ("pro" tier).
+  // 3b. AI reply, as the assistant persona (light/standard/pro tiers).
   const apiKey = loadAnthropicKey();
   if (!apiKey) {
     const holding = "Sorry, give me a bit and I'll get back to you!";
@@ -243,7 +251,7 @@ async function handleIncoming(sock, msg) {
   }
   try {
     const history = conv.messages.slice(0, -1); // exclude the customer message just logged; generateReply appends it itself
-    const { text: replyText, productShowcases } = await generateReply({ apiKey, settings, products, assistantName, history, incomingText: text });
+    const { text: replyText, productShowcases } = await generateReply({ apiKey, settings, products, assistantName, history, incomingText: text, tier });
 
     for (const item of productShowcases) {
       const product = products.find((p) => p.name.toLowerCase() === String(item.name || '').toLowerCase() && (p.stock || 0) > 0);

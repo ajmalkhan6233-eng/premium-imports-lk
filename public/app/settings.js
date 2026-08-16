@@ -60,12 +60,19 @@ function renderSettings() {
       <div class="field"><label>Replies as</label><input id="st-assistantname" value="${escapeHtml(s.assistantName || 'Nushra')}"></div>
       <p class="sub" style="margin-top:-6px">The assistant replies as this person — warm and familiar, not an announced bot.</p>
       <div class="field" style="margin-top:10px"><label>Reply engine</label>
-        <div class="toggle-group" id="st-whatsapp-tier-group" style="margin-bottom:0">
-          <button data-tier="general" class="${(s.whatsappTier || 'pro') === 'general' ? 'active' : ''}">Simple FAQ (no AI)</button>
-          <button data-tier="pro" class="${(s.whatsappTier || 'pro') === 'pro' ? 'active' : ''}">Full AI Assistant</button>
+        <div class="toggle-group" id="st-whatsapp-tier-group" style="margin-bottom:0;flex-wrap:wrap">
+          <button data-tier="general" class="${(s.whatsappTier || 'pro') === 'general' ? 'active' : ''}">General</button>
+          <button data-tier="light" class="${(s.whatsappTier || 'pro') === 'light' ? 'active' : ''}">Light</button>
+          <button data-tier="standard" class="${(s.whatsappTier || 'pro') === 'standard' ? 'active' : ''}">Standard</button>
+          <button data-tier="pro" class="${(s.whatsappTier || 'pro') === 'pro' ? 'active' : ''}">Pro</button>
         </div>
       </div>
-      <p class="sub" style="margin-top:6px">Simple FAQ answers hours/delivery/location/product price from a keyword match — no AI cost, but only recognizes those. Full AI Assistant is the natural-conversation assistant this shop uses today.</p>
+      <p class="sub" style="margin-top:6px">
+        <strong>General</strong> — keyword-matched FAQ (hours/delivery/location/price), no AI cost.
+        <strong>Light</strong> — natural AI conversation, text only.
+        <strong>Standard</strong> — Light + sends real product photos.
+        <strong>Pro</strong> — Standard + payment-plan/credit conversations (what this shop uses today).
+      </p>
       <button class="btn small" id="st-save-assistant">Save</button>
     </div>
 

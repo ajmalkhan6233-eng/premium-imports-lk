@@ -1558,6 +1558,49 @@ Direct/Website); the storefront (`/shop`) is the "web" side, and its
 orders are already tagged `website` in that same report. Explained to
 Ajmal rather than rebuilding something that's there.
 
+---
+
+## WhatsApp Agent — Light/Standard Tiers — 2026-08-16 (continued)
+
+Ajmal: "WhatsApp agent work, let's go" — recommended filling the gap
+between General (no AI) and Pro (today's full setup) rather than voice/
+image/multi-language, since it needs no new API integrations and gives an
+actual sellable tier ladder. He didn't respond to the follow-up scoping
+question, so proceeded on the recommendation as stated.
+
+**Design**: one AI engine (`assistant.js`), not three separate prompt
+files — the shop-grounding (products/hours/delivery) is identical at
+every AI tier, only what the model is *allowed to do* escalates:
+- `light` — natural AI conversation, text only.
+- `standard` — light + the `show_products` tool (real photo + price).
+- `pro` — standard + the payment-plan menu logic (`index.js`).
+`general` stays the separate no-AI `faqAssistant.js` engine from earlier.
+
+**Built**: `assistant.js`'s `buildSystemPrompt`/`generateReply` take a
+`tier` param — the "SHOWING PRODUCTS" instruction and the `tools` array
+in the Anthropic request are only included for standard/pro; light gets
+a plain-text fallback instruction instead. `index.js`'s payment-plan
+menu block (`awaitingPlanChoice`/`checkPaymentPlanIntent`) is now gated
+to `tier === 'pro'` — this was actually a **pre-existing bug** found
+while wiring the tiers: that block ran unconditionally before, so it
+could technically fire even under the no-AI General tier. Settings tab's
+toggle is now 4 buttons with a one-line explanation of what each unlocks.
+
+**Verified**: `buildSystemPrompt()` called directly per tier — confirmed
+light omits the photo-tool instruction and gets the text-only fallback,
+standard/pro both include it; the tools-array inclusion logic checked in
+isolation (light omits `tools`, standard/pro include it) without a live
+Anthropic API call (no cost, no live WhatsApp number touched — consistent
+with this session's standing rule that the bridge itself isn't started
+without Ajmal present). `node --check` clean on all four touched files.
+PM2 restarted, stable; UI toggle confirmed rendering all 4 tiers with
+Pro still active (real `data.json` still backfilled to `"pro"` — no
+change to this shop's actual behavior).
+
+**Not done**: voice transcription, image recognition, multi-language,
+and the actual repo-extraction are all still ahead — this pass was
+scoped to the tier ladder only, per the recommendation Ajmal approved.
+
 **Flagged, not actioned:** mid-session Ajmal raised a separate, much
 larger idea — a white-label WhatsApp AI agent product (voice recognition,
 image recognition, 3 languages) to sell to other shops, mentioning

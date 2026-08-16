@@ -30,10 +30,13 @@ function defaultData() {
       startingBillNumber: 1,
       logo: null,
       assistantName: 'Nushra',
-      // WhatsApp product concept (whatsapp-bridge/): 'general' = free-text
-      // keyword FAQ engine, no AI call (whatsapp-bridge/faqAssistant.js);
-      // 'pro' = today's real AI-grounded assistant (whatsapp-bridge/
-      // assistant.js). Defaults to 'pro' so this shop's real behavior is
+      // WhatsApp product concept (whatsapp-bridge/) — 4-tier ladder:
+      //   general  — keyword FAQ, no AI call (faqAssistant.js)
+      //   light    — AI conversation, text only, no photos/payment plans
+      //   standard — light + product photo showcase
+      //   pro      — standard + payment-plan menu logic (today's PIL setup)
+      // See assistant.js/index.js for where each tier's capability is
+      // actually gated. Defaults to 'pro' so this shop's real behavior is
       // unchanged unless someone explicitly switches it in Settings.
       whatsappTier: 'pro',
       shopHours: '',
