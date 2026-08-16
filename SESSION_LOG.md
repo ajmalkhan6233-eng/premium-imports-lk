@@ -1506,6 +1506,58 @@ happened, not something to guess at.
 this leg (recovery, WhatsApp wiring, GRN void, test, restore) — all
 clean once the orphaned process was cleared, `/api/health` 200 throughout.
 
+---
+
+## Void Payment on Customers/Vendors/Loans — 2026-08-16 (continued)
+
+Ajmal, after confirming he'd deleted the orphaned "chammi" vendor himself
+(no data issue there): "some other places also have to come edit and
+delete buttons." Audited beyond GRN and found the same class of gap on
+recorded payments — `openCustomerPaymentForm`/`openVendorPaymentForm`/
+`openLoanPaymentForm` (customers.js/vendors.js/loans.js) all wrote a
+ledger entry with zero way to correct a mistake afterward. Loans had it
+twice over — "loan given" entries are also entered directly with no
+separate source record, same gap as a repayment.
+
+**Built**: a "Void" button per payment-type ledger row (admin-only),
+same reversing-entry pattern as bills/GRN void — never mutates or removes
+the original entry, just marks it `voided: true` (so it can't be
+double-voided and renders with a struck-through "Voided" badge) and
+appends a new ledger entry undoing the balance effect. Client-side only
+(these payment flows already used the generic `saveKey`/PUT path before
+this, not the write-locked POST endpoints — kept that same consistency
+level rather than introducing a new server route for just this).
+
+Loans needed one extra fix: its ledger view is split into two tabs
+(Credit/Debit) filtered strictly by entry type, so a plain `type: 'void'`
+entry would render in neither tab — invisible, not just unlabeled. Added
+`voidOf` on the void entry so it sorts into whichever tab it actually
+reversed, with correct sign (voiding a loan given is a decrease, voiding
+a repayment is an increase — opposite of what it reversed).
+
+**Verified live**, not just read: no real payment ledger entries existed
+yet on real customers/vendors/lenders to test against, so used a
+throwaway test customer (`ZZ_TEST_VOID_PAYMENT`) instead of touching any
+real record — recorded a real Rs. 200 payment (dues 500→300), voided it
+through the actual `voidCustomerPayment()` function (not simulated),
+confirmed dues correctly restored to 500, the original entry marked
+`voided: true`, and a new void entry with the correct `balanceAfter`
+appended — then deleted the test customer, reconfirmed gone from
+`data.json` and the real customer count back to 4, no `�` corruption.
+Vendor/lender arithmetic (paid/balance, given/repaid/balance) checked in
+isolation with plain Node — both correctly round-trip back to their
+starting values after payment-then-void. `node --check` clean on all
+three files; PM2 stable throughout (4+ min uptime, no crash-loop).
+
+**Marketing/Facebook-to-WhatsApp linking** — Ajmal asked if this is
+possible. It already exists and didn't need building: Settings →
+Marketing Links generates a tracked "Click to WhatsApp" link meant for a
+Facebook ad's WhatsApp button; Reports → "Where customers come from"
+already attributes conversations/sales by source (Facebook/TikTok/
+Direct/Website); the storefront (`/shop`) is the "web" side, and its
+orders are already tagged `website` in that same report. Explained to
+Ajmal rather than rebuilding something that's there.
+
 **Flagged, not actioned:** mid-session Ajmal raised a separate, much
 larger idea — a white-label WhatsApp AI agent product (voice recognition,
 image recognition, 3 languages) to sell to other shops, mentioning

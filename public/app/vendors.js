@@ -89,9 +89,9 @@ function renderVendorDetailHtml() {
     ${sortedLedger.length === 0 ? '<div class="empty-state"><div class="empty-icon">\u{1F4C4}</div><div>No transactions yet.</div></div>' :
       sortedLedger.map((l) => `
         <div class="list-row" style="cursor:default">
-          <div><div class="title">${labelForLedgerType(l.type)}${l.ref ? ' (' + escapeHtml(l.ref) + ')' : ''}${l.method ? ' (' + escapeHtml(l.method) + ')' : ''}</div>
+          <div><div class="title">${labelForLedgerType(l.type)}${l.ref ? ' (' + escapeHtml(l.ref) + ')' : ''}${l.method ? ' (' + escapeHtml(l.method) + ')' : ''}${l.voided ? ' <span class="badge voided">Voided</span>' : ''}</div>
             <div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div>
-          <div style="text-align:right"><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong>${l.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l.balanceAfter)}</div>` : ''}</div>
+          <div style="text-align:right;display:flex;align-items:center;gap:8px"><div><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong>${l.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l.balanceAfter)}</div>` : ''}</div>${isAdmin() && l.type === 'payment' && !l.voided ? `<button class="btn small danger" data-void-vpayment="${l.id}">Void</button>` : ''}</div>
         </div>`).join('')}
     <div class="section-title"><h3>GRN History</h3></div>
     ${vendorGrns.length === 0 ? `<div class="empty-state"><div class="empty-icon">\u{1F4E5}</div><div>No goods received yet.</div><button class="btn small" id="vd-empty-grn">Go to GRN</button></div>` :
@@ -111,6 +111,9 @@ function bindVendorDetailEvents() {
   if (editBtn) editBtn.onclick = () => openVendorForm(v.id);
   const payBtn = document.getElementById('vd-pay');
   if (payBtn) payBtn.onclick = () => openVendorPaymentForm(v.id);
+  document.querySelectorAll('[data-void-vpayment]').forEach((btn) => {
+    btn.onclick = () => voidVendorPayment(v.id, btn.dataset.voidVpayment);
+  });
   const csvBtn = document.getElementById('vd-export-csv');
   if (csvBtn) csvBtn.onclick = () => exportVendorCsv(v);
   const pdfBtn = document.getElementById('vd-export-pdf');
@@ -160,6 +163,27 @@ function deleteVendor(id) {
   if (selectedVendorId === id) selectedVendorId = null;
   saveKey('vendors').then(() => { renderVendors(); toast('Vendor deleted'); });
   return true;
+}
+// Same reasoning as customers.js's voidCustomerPayment — a recorded
+// vendor payment had no correction mechanism at all.
+function voidVendorPayment(vendorId, ledgerEntryId) {
+  const v = STATE.vendors.find((x) => x.id === vendorId);
+  if (!v) return;
+  const entry = (v.ledger || []).find((l) => l.id === ledgerEntryId);
+  if (!entry || entry.type !== 'payment' || entry.voided) return;
+  if (!confirm(`Void this ${money(entry.amount)} payment? This adds it back to ${v.name}'s balance owed.`)) return;
+  const reason = prompt('Reason (optional):') || '';
+  entry.voided = true;
+  v.paid = Math.max(0, (v.paid || 0) - entry.amount);
+  v.balance = (v.purchased || 0) - v.paid;
+  v.ledger.push({
+    id: uid('L'), type: 'void', date: todayISO(), amount: entry.amount,
+    balanceAfter: v.balance, ref: '', note: reason ? `Payment voided: ${reason}` : 'Payment voided', by: STATE.user
+  });
+  saveKey('vendors').then(() => {
+    toast('Payment voided');
+    renderVendors();
+  });
 }
 function openVendorForm(id) {
   const v = id ? STATE.vendors.find((x) => x.id === id) : null;

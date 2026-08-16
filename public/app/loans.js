@@ -95,14 +95,25 @@ function renderLenderDetailHtml() {
 }
 function renderLenderLedgerList(sorted) {
   const wantType = lenderLedgerView === 'debit' ? 'payment' : 'loan';
-  const entries = sorted.filter((l2) => l2.type === wantType);
+  // Void entries (see voidLenderEntry) carry voidOf so they land in the
+  // same tab as the entry they reversed, instead of being invisible in
+  // both — this view filters strictly by type, unlike Customers/Vendors'
+  // single unfiltered ledger list.
+  const entries = sorted.filter((l2) => l2.type === wantType || (l2.type === 'void' && l2.voidOf === wantType));
   if (entries.length === 0) return `<div class="empty-state">No ${lenderLedgerView === 'debit' ? 'repayments' : 'loans given'} yet.</div>`;
-  return entries.map((l2) => `
+  return entries.map((l2) => {
+    const title = l2.type === 'void' ? `Void (${l2.voidOf === 'loan' ? 'Loan Given' : 'Repayment'})` : (l2.type === 'loan' ? 'Loan Given' : 'Repayment');
+    // Sign convention: a loan given is +balance, a repayment is -balance.
+    // Voiding a loan given removes it (-), voiding a repayment restores
+    // the balance (+) — the opposite of what it reversed.
+    const isPositive = l2.type === 'void' ? l2.voidOf === 'payment' : l2.type !== 'payment';
+    return `
     <div class="list-row" style="cursor:default">
-      <div><div class="title">${l2.type === 'loan' ? 'Loan Given' : 'Repayment'}${l2.method ? ' (' + escapeHtml(l2.method) + ')' : ''}</div>
+      <div><div class="title">${title}${l2.method ? ' (' + escapeHtml(l2.method) + ')' : ''}${l2.voided ? ' <span class="badge voided">Voided</span>' : ''}</div>
         <div class="sub">${fmtDate(l2.date)} ${l2.note ? '· ' + escapeHtml(l2.note) : ''}</div></div>
-      <div style="text-align:right"><strong>${l2.type === 'payment' ? '-' : '+'}${money(l2.amount)}</strong>${l2.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l2.balanceAfter)}</div>` : ''}</div>
-    </div>`).join('');
+      <div style="text-align:right;display:flex;align-items:center;gap:8px"><div><strong>${isPositive ? '+' : '-'}${money(l2.amount)}</strong>${l2.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l2.balanceAfter)}</div>` : ''}</div>${isAdmin() && l2.type !== 'void' && !l2.voided ? `<button class="btn small danger" data-void-lpayment="${l2.id}">Void</button>` : ''}</div>
+    </div>`;
+  }).join('');
 }
 function bindLenderDetailEvents() {
   const l = selectedLenderId ? STATE.lenders.find((x) => x.id === selectedLenderId) : null;
@@ -111,6 +122,9 @@ function bindLenderDetailEvents() {
   if (editBtn) editBtn.onclick = () => openLenderForm(l.id);
   const payBtn = document.getElementById('ld-pay');
   if (payBtn) payBtn.onclick = () => openLoanPaymentForm(l.id);
+  document.querySelectorAll('[data-void-lpayment]').forEach((btn) => {
+    btn.onclick = () => voidLenderEntry(l.id, btn.dataset.voidLpayment);
+  });
   const tabs = document.getElementById('lenderLedgerTabs');
   if (tabs) tabs.querySelectorAll('button[data-view]').forEach((b) => {
     b.onclick = () => { lenderLedgerView = b.dataset.view; renderLoans(); };
@@ -128,6 +142,31 @@ function deleteLender(id) {
   if (selectedLenderId === id) selectedLenderId = null;
   saveKey('lenders').then(() => { renderLoans(); toast('Lender deleted'); });
   return true;
+}
+// Covers both ledger entry types here (loan given, repayment) — unlike
+// customers/vendors, a lender's "loan given" entry has no separate source
+// record either (it's entered directly via openAddLoanForm), so it has
+// the exact same "no correction mechanism" gap a mistaken repayment does.
+function voidLenderEntry(lenderId, ledgerEntryId) {
+  const l = STATE.lenders.find((x) => x.id === lenderId);
+  if (!l) return;
+  const entry = (l.ledger || []).find((x) => x.id === ledgerEntryId);
+  if (!entry || entry.voided || (entry.type !== 'loan' && entry.type !== 'payment')) return;
+  const isLoan = entry.type === 'loan';
+  if (!confirm(`Void this ${money(entry.amount)} ${isLoan ? 'loan given' : 'repayment'}? This ${isLoan ? 'removes it from' : 'adds it back to'} the outstanding balance.`)) return;
+  const reason = prompt('Reason (optional):') || '';
+  entry.voided = true;
+  if (isLoan) l.given = Math.max(0, (l.given || 0) - entry.amount);
+  else l.repaid = Math.max(0, (l.repaid || 0) - entry.amount);
+  l.balance = (l.given || 0) - (l.repaid || 0);
+  l.ledger.push({
+    id: uid('L'), type: 'void', voidOf: entry.type, date: todayISO(), amount: entry.amount,
+    balanceAfter: l.balance, ref: '', note: reason ? `${isLoan ? 'Loan' : 'Payment'} voided: ${reason}` : `${isLoan ? 'Loan' : 'Payment'} voided`, by: STATE.user
+  });
+  saveKey('lenders').then(() => {
+    toast('Voided');
+    renderLoans();
+  });
 }
 function openLenderForm(id, onSaved) {
   const l = id ? STATE.lenders.find((x) => x.id === id) : null;

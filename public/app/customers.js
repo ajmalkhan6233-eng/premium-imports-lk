@@ -204,7 +204,7 @@ function openCustomerLedger(id) {
     ${cu.phone ? '<button class="btn small secondary" id="cl-whatsapp">💬 WhatsApp</button>' : ''}
     <div class="section-title"><h3>Ledger</h3></div>
     ${sorted.length === 0 ? '<div class="empty-state">No transactions.</div>' :
-      sorted.map((l) => `<div class="list-row"><div><div class="title">${labelForLedgerType(l.type)} ${l.ref ? '(' + l.ref + ')' : ''}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><div style="text-align:right"><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong>${l.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l.balanceAfter)}</div>` : ''}</div></div>`).join('')}
+      sorted.map((l) => `<div class="list-row" style="cursor:default"><div><div class="title">${labelForLedgerType(l.type)} ${l.ref ? '(' + l.ref + ')' : ''}${l.voided ? ' <span class="badge voided">Voided</span>' : ''}</div><div class="sub">${fmtDate(l.date)} ${l.note ? '· ' + escapeHtml(l.note) : ''}</div></div><div style="text-align:right;display:flex;align-items:center;gap:8px"><div><strong>${l.type === 'payment' ? '-' : '+'}${money(l.amount)}</strong>${l.balanceAfter !== undefined ? `<div class="sub">Bal: ${money(l.balanceAfter)}</div>` : ''}</div>${isAdmin() && l.type === 'payment' && !l.voided ? `<button class="btn small danger" data-void-payment="${l.id}">Void</button>` : ''}</div></div>`).join('')}
     <button class="btn secondary block" style="margin-top:10px" id="cl-close">Close</button>
   `);
   document.getElementById('cl-close').onclick = closeModal;
@@ -212,6 +212,32 @@ function openCustomerLedger(id) {
   document.getElementById('cl-pay').onclick = () => openCustomerPaymentForm(id);
   const waBtn = document.getElementById('cl-whatsapp');
   if (waBtn) waBtn.onclick = () => window.open(`https://wa.me/${cu.phone.replace(/\D/g, '')}`, '_blank');
+  document.querySelectorAll('[data-void-payment]').forEach((btn) => {
+    btn.onclick = () => voidCustomerPayment(id, btn.dataset.voidPayment);
+  });
+}
+// A recorded payment had no correction mechanism at all — this reverses
+// it the same way voidBillFlow/voidGrnFlow do elsewhere: a new ledger
+// entry undoing the effect, the original payment entry never mutated or
+// removed, just labeled voided in its own type check above.
+function voidCustomerPayment(customerId, ledgerEntryId) {
+  const cu = STATE.customers.find((x) => x.id === customerId);
+  if (!cu) return;
+  const entry = (cu.ledger || []).find((l) => l.id === ledgerEntryId);
+  if (!entry || entry.type !== 'payment' || entry.voided) return;
+  if (!confirm(`Void this ${money(entry.amount)} payment? This adds it back to ${cu.name}'s dues.`)) return;
+  const reason = prompt('Reason (optional):') || '';
+  entry.voided = true;
+  cu.dues = (cu.dues || 0) + entry.amount;
+  cu.ledger.push({
+    id: uid('L'), type: 'void', date: todayISO(), amount: entry.amount,
+    balanceAfter: cu.dues, ref: '', note: reason ? `Payment voided: ${reason}` : 'Payment voided', by: STATE.user
+  });
+  saveKey('customers').then(() => {
+    toast('Payment voided');
+    openCustomerLedger(customerId);
+    renderCustomers();
+  });
 }
 function openCustomerPaymentForm(id) {
   const cu = STATE.customers.find((x) => x.id === id);
