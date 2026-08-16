@@ -1,5 +1,6 @@
 /* ================= HOME / DASHBOARD ================= */
 let homePeriod = 'today'; // 'today' | 'week' | 'month'
+let netProfitInterval = null; // AI-INTELLIGENCE-LAYER-v2-command.md Feature 3 auto-refresh
 
 function periodRange(period) {
   const today = todayISO();
@@ -17,7 +18,9 @@ function periodRange(period) {
 function renderHome() {
   const c = document.getElementById('pageContent');
   const { from, to, label } = periodRange(homePeriod);
-  const periodBills = STATE.bills.filter((b) => b.type !== 'quote' && b.date >= from && b.date <= to);
+  // Voided bills are excluded from every total below — a returned sale
+  // didn't really happen, and its stock was already restored.
+  const periodBills = STATE.bills.filter((b) => b.type !== 'quote' && b.status !== 'voided' && b.date >= from && b.date <= to);
 
   const periodSales = periodBills.reduce((s, b) => s + (b.total || 0), 0);
   const periodProfit = periodBills.reduce((s, b) => {
@@ -30,6 +33,9 @@ function renderHome() {
   const lowStock = STATE.products.filter((p) => (p.stock || 0) <= LOW_STOCK_THRESHOLD);
 
   c.innerHTML = `
+    <div class="field" style="margin-bottom:10px">
+      <input id="home-quicklookup" placeholder="Look up an invoice number or customer name…" style="width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:10px;font-size:0.95rem">
+    </div>
     <div class="toggle-group" id="home-period-group">
       <button data-period="today" class="${homePeriod === 'today' ? 'active' : ''}">Today</button>
       <button data-period="week" class="${homePeriod === 'week' ? 'active' : ''}">This Week</button>
@@ -42,6 +48,7 @@ function renderHome() {
     <div class="grid">
       <div class="card stat-card" id="stat-sales"><div class="label">Sales — ${label}</div><div class="value">${money(periodSales)}</div></div>
       <div class="card stat-card" id="stat-profit"><div class="label">Profit — ${label}</div><div class="value">${money(periodProfit)}</div></div>
+      <div class="card stat-card" id="stat-netprofit"><div class="label">Net Profit — ${label}</div><div class="value" id="netProfitValue">…</div></div>
       <div class="card stat-card" id="stat-stockvalue"><div class="label">Stock Value — right now</div><div class="value">${money(stockValue)}</div></div>
       <div class="card stat-card ${totalDues > 0 ? 'warn' : ''}" id="stat-dues"><div class="label">Customer Dues — right now</div><div class="value">${money(totalDues)}</div></div>
       <div class="card stat-card ${totalLoans > 0 ? 'warn' : ''}" id="stat-loans"><div class="label">Loans Outstanding — right now</div><div class="value">${money(totalLoans)}</div></div>
@@ -50,11 +57,27 @@ function renderHome() {
     <div class="card" id="monthly-detail-link" style="margin-top:14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
       <span>View full stock breakdown</span><span>&rsaquo;</span>
     </div>
+    <div class="section-title"><h3>Your Business Agent</h3></div>
+    <div class="card" id="ai-query-card">
+      <p class="sub" style="margin-top:-2px">Answers straight from your real sales, expenses, GRN, and vendor data — not a scripted bot. Ask it anything, anytime.</p>
+      <div class="row" style="gap:8px">
+        <input id="ai-query-input" placeholder="e.g. how much profit did we make this week?" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px">
+        <button class="btn" id="ai-query-btn">Ask</button>
+      </div>
+      <div id="ai-query-answer"></div>
+      <div id="ai-query-recent"></div>
+    </div>
     <div class="section-title"><h3>Documents</h3></div>
     <div id="home-doc-list">${renderDocumentList()}</div>
     <div id="dashPrintArea" style="position:absolute;left:-9999px;top:0"></div>
   `;
 
+  document.getElementById('home-quicklookup').addEventListener('input', (e) => {
+    const val = e.target.value;
+    e.target.value = '';
+    e.target.blur();
+    openQuickLookupModal(val);
+  });
   c.querySelectorAll('#home-period-group button').forEach((b) => {
     b.onclick = () => { homePeriod = b.dataset.period; renderHome(); };
   });
@@ -68,6 +91,102 @@ function renderHome() {
   document.getElementById('home-download').onclick = () => downloadDashboardSummary({ label, periodSales, periodProfit, stockValue, totalDues, totalLoans });
   document.getElementById('home-upload').onclick = () => openUploadDocumentModal();
   bindDocumentListEvents();
+  initNetProfitCard(from, to, label);
+  bindAiQueryPanel();
+}
+
+/* ---- Net Profit (AI-INTELLIGENCE-LAYER-v2-command.md Feature 3) ----
+   Server-computed (revenue - COGS - expenses), unlike the existing "Profit"
+   stat above which is gross profit only (no expenses). Auto-refreshes every
+   60s while Home is open; stops itself once the card leaves the DOM
+   (tab switched away) instead of piling up intervals across renders. */
+function initNetProfitCard(from, to, label) {
+  if (netProfitInterval) clearInterval(netProfitInterval);
+  const load = async () => {
+    const el = document.getElementById('netProfitValue');
+    if (!el) { clearInterval(netProfitInterval); netProfitInterval = null; return; }
+    try {
+      const res = await fetch(`/api/reports/net-profit?from=${from}&to=${to}`, { headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) { el.textContent = '—'; return; }
+      el.textContent = money(data.netProfit);
+      const card = document.getElementById('stat-netprofit');
+      card.classList.toggle('warn', data.netProfit < 0);
+      card.onclick = () => showNetProfitBreakdown(label, data);
+    } catch (e) { el.textContent = '—'; }
+  };
+  load();
+  netProfitInterval = setInterval(load, 60000);
+}
+function showNetProfitBreakdown(label, data) {
+  openModal(`
+    <h3>Net Profit — ${escapeHtml(label)}</h3>
+    <div class="list-row"><div class="title">Revenue</div><strong>${money(data.revenue)}</strong></div>
+    <div class="list-row"><div class="title">Cost of Goods Sold</div><strong>-${money(data.cogs)}</strong></div>
+    <div class="list-row"><div class="title">Expenses</div><strong>-${money(data.expenses)}</strong></div>
+    <div class="list-row" style="border-top:1px solid var(--line);margin-top:6px;padding-top:12px"><div class="title">Net Profit</div><strong>${money(data.netProfit)}</strong></div>
+    <div class="sub">Margin: ${data.marginPercent.toFixed(1)}%</div>
+    <div class="modal-actions"><button class="btn secondary block" id="closeBreakdown">Close</button></div>
+  `);
+  document.getElementById('closeBreakdown').onclick = closeModal;
+}
+
+/* ---- Ask AI (AI-INTELLIGENCE-LAYER-v2-command.md Feature 2) ----
+   Plain-language question -> POST /api/ai-query -> server-side tool-use
+   loop grounded in real data (server.js -> routes/ai-query.js). Nothing
+   here computes a figure itself; it only displays what the server returned,
+   plus the tool calls it used (dataUsed) for a lightweight audit trail. */
+function bindAiQueryPanel() {
+  const input = document.getElementById('ai-query-input');
+  const btn = document.getElementById('ai-query-btn');
+  const answerEl = document.getElementById('ai-query-answer');
+  const askFn = () => askAi(input.value.trim());
+  btn.onclick = askFn;
+  input.onkeydown = (e) => { if (e.key === 'Enter') askFn(); };
+  loadAiRecent();
+
+  async function askAi(question) {
+    if (!question) { toast('Type a question first'); return; }
+    btn.disabled = true; btn.textContent = 'Thinking...';
+    answerEl.innerHTML = '';
+    try {
+      const res = await fetch('/api/ai-query', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ question })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        answerEl.innerHTML = `<div class="sub" style="color:var(--red)">${escapeHtml(data.message || 'Could not get an answer.')}</div>`;
+      } else {
+        const toolsUsed = (data.dataUsed || []).map((d) => d.tool).join(', ');
+        answerEl.innerHTML = `
+          <div style="margin-top:10px">${escapeHtml(data.answer)}</div>
+          ${toolsUsed ? `<div class="sub" style="margin-top:4px">Checked: ${escapeHtml(toolsUsed)}</div>` : ''}
+        `;
+        loadAiRecent();
+      }
+    } catch (e) {
+      answerEl.innerHTML = `<div class="sub" style="color:var(--red)">Could not reach the server.</div>`;
+    }
+    btn.disabled = false; btn.textContent = 'Ask';
+  }
+
+  async function loadAiRecent() {
+    const recentEl = document.getElementById('ai-query-recent');
+    if (!recentEl) return;
+    try {
+      const res = await fetch('/api/ai-query/recent', { headers: authHeaders() });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.recent || !data.recent.length) { recentEl.innerHTML = ''; return; }
+      recentEl.innerHTML = `<div class="sub" style="margin-top:12px">Recent questions</div>` +
+        data.recent.map((r) => `<div class="list-row" data-q="${escapeHtml(r.question)}" style="cursor:pointer"><div class="title">${escapeHtml(r.question)}</div></div>`).join('');
+      recentEl.querySelectorAll('[data-q]').forEach((row) => {
+        row.onclick = () => { document.getElementById('ai-query-input').value = row.dataset.q; };
+      });
+    } catch (e) { /* non-critical, leave list as-is */ }
+  }
 }
 function showLowStockBreakdown(lowStock) {
   openModal(`
@@ -178,7 +297,7 @@ function renderMonthlyDetail() {
   const c = document.getElementById('pageContent');
   document.getElementById('pageTitle').textContent = 'Monthly Detail';
   const monthKey = todayISO().slice(0, 7);
-  const monthBills = STATE.bills.filter((b) => (b.date || '').slice(0, 7) === monthKey && b.type !== 'quote');
+  const monthBills = STATE.bills.filter((b) => (b.date || '').slice(0, 7) === monthKey && b.type !== 'quote' && b.status !== 'voided');
   const monthSales = monthBills.reduce((s, b) => s + (b.total || 0), 0);
   const monthProfit = monthBills.reduce((s, b) => {
     const billProfit = (b.items || []).reduce((ps, it) => ps + ((it.price - it.cost) * it.qty), 0) - (b.discountAmount || 0);

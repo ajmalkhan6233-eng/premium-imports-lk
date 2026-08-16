@@ -37,21 +37,53 @@ server is running and both devices are on the same network.
 Default PINs are `1234` for both AJMAL and NUSHRA — change them from
 Settings once you're in.
 
-## Running automatically on boot (Windows)
+## Running the server (recommended: PM2)
 
-1. Double-click `start.bat` to start the server manually any time — it
-   opens a console window that must stay open while you're using the
-   system. Closing that window stops the server.
-2. To have it start automatically when the computer turns on:
-   - Press `Win + R`, type `shell:startup`, press Enter.
-   - Copy a **shortcut** to `start.bat` into that folder.
-   - The server will now start automatically on every boot, as long as
-     the computer stays on.
+The server now runs under [PM2](https://pm2.keymetrics.io/) (installed as a
+local dev dependency, configured in `ecosystem.config.js`), which restarts
+it automatically if it ever crashes — no console window needs to stay open.
 
-If you later want it to run silently in the background (no console
-window, restarts itself if it crashes), look into
-[PM2](https://pm2.keymetrics.io/) — this is a future upgrade, not set up
-here.
+```
+npm install
+npm run start:pm2      # starts server.js under PM2 supervision
+```
+
+Other useful commands:
+
+```
+npm run logs:pm2       # tail the server's logs
+npm run stop:pm2       # stop it
+npx pm2 status          # see whether it's running
+npx pm2 restart premium-imports-server   # restart after a code change
+```
+
+To have PM2 (and the server) start automatically when the computer turns
+on, run this once (as Administrator, in the project folder):
+
+```
+npx pm2 start ecosystem.config.js
+npx pm2 save
+npx pm2-startup install
+```
+
+`pm2-startup install` registers PM2 itself to launch on boot; `pm2 save`
+records that `premium-imports-server` should come back up when it does. If
+`pm2-startup` isn't available, `npx pm2-installer` or a scheduled task that
+runs `npx pm2 resurrect` at login are the usual Windows fallbacks.
+
+### Manual / fallback method
+
+`start.bat` still works if you'd rather run the server directly without PM2
+(e.g. for a quick one-off check) — it opens a console window that must stay
+open while you're using the system, with no auto-restart on crash:
+
+1. Double-click `start.bat` to start the server manually any time.
+2. To have *this* method start automatically on boot instead of PM2: press
+   `Win + R`, type `shell:startup`, press Enter, and copy a **shortcut** to
+   `start.bat` into that folder.
+
+Prefer the PM2 method above for day-to-day use — it's what keeps the shop
+online if the process ever crashes unattended.
 
 ## Data & backups
 

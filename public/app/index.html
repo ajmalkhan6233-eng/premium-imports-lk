@@ -33,7 +33,10 @@
   <div class="main">
     <div class="topbar">
       <h1 id="pageTitle">Home</h1>
-      <div id="liveClock" class="live-clock"></div>
+      <div style="display:flex;align-items:center">
+        <div id="livePulse" class="live-pulse"></div>
+        <div id="liveClock" class="live-clock"></div>
+      </div>
     </div>
     <div id="onlineOrdersBadge" class="hidden"></div>
     <div id="pageContent"></div>
@@ -45,6 +48,7 @@
 
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
+<div id="vendorPrintArea" style="position:absolute;left:-9999px;top:0"></div>
 
 <script src="/lib/qrcode.js"></script>
 <script src="/lib/ambient-bg.js"></script>
@@ -52,12 +56,15 @@
 <script src="products.js"></script>
 <script src="grn.js"></script>
 <script src="sell.js"></script>
+<script src="bills.js"></script>
 <script src="customers.js"></script>
 <script src="vendors.js"></script>
 <script src="loans.js"></script>
+<script src="expenses.js"></script>
 <script src="messages.js"></script>
 <script src="reports.js"></script>
 <script src="settings.js"></script>
+<script src="siteEditor.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -32,6 +32,23 @@ function escapeHtml(s) {
 function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 9999)}`;
 }
+
+// Inline SVG placeholder for products without a photo — no external network
+// dependency, so the catalog never shows broken images if a third-party
+// placeholder service is slow/down. Matches the storefront's dark/gold theme.
+function placeholderImage(name) {
+  const initials = String(name || '?')
+    .split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="169" viewBox="0 0 300 169">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1A2233"/><stop offset="1" stop-color="#121826"/>
+    </linearGradient></defs>
+    <rect width="300" height="169" fill="url(#g)"/>
+    <text x="150" y="94" font-family="sans-serif" font-size="42" font-weight="700"
+      fill="#C9A24B" text-anchor="middle" dominant-baseline="middle">${escapeHtml(initials)}</text>
+  </svg>`;
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
 const CART_STORAGE_KEY = 'pilk_shop_cart';
@@ -73,6 +90,12 @@ async function boot() {
     return;
   }
   document.title = SHOP.settings.shopName || 'Premium Imports LK';
+  const freeMin = SHOP.settings.deliveryZones && SHOP.settings.deliveryZones.freeDeliveryMin;
+  if (freeMin > 0) {
+    const el = document.getElementById('freeDeliveryNote');
+    el.textContent = `Free delivery on orders over ${money(freeMin)}`;
+    el.classList.remove('hidden');
+  }
   startAmbientBackground('particleBg');
   renderFilters();
   renderGrid();
@@ -84,7 +107,34 @@ async function boot() {
   });
   document.getElementById('searchBtn').onclick = () => document.getElementById('searchInput').focus();
   document.querySelectorAll('main .reveal').forEach(observeReveal);
+  applyUiConfig();
 }
+
+// SELF_SUSTAINING_ADMIN_COMMAND.md Phase 2: hero tagline + announcement
+// banner, editable from the admin "Site & POS Editor" tab
+// (server.js GET /api/public/ui-config). Best-effort only — if this fails
+// the hero keeps whatever's already in the static HTML, so the storefront
+// never goes blank because of a config fetch, per the command's own rule.
+async function applyUiConfig() {
+  try {
+    const res = await fetch('/api/public/ui-config');
+    if (!res.ok) return;
+    const { value } = await res.json();
+    if (!value) return;
+    if (value.heroTagline) {
+      const el = document.getElementById('heroTagline');
+      if (el) el.textContent = value.heroTagline;
+    }
+    const banner = value.announcementBanner;
+    const bannerEl = document.getElementById('announcementBanner');
+    if (bannerEl && banner && banner.active && banner.text) {
+      bannerEl.textContent = banner.text;
+      bannerEl.classList.remove('hidden');
+    }
+  } catch (e) { /* keep static HTML defaults */ }
+}
+
+const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function renderFilters() {
   const cats = ['All', ...(SHOP.settings.categories || [])];
@@ -92,46 +142,89 @@ function renderFilters() {
     `<div data-cat="${escapeHtml(c)}" class="cat${c === SHOP.categoryFilter ? ' active' : ''}">${escapeHtml(c)}</div>`
   ).join('');
   document.querySelectorAll('#catFilters .cat').forEach((b) => {
-    b.onclick = () => { SHOP.categoryFilter = b.dataset.cat; renderFilters(); renderGrid(); };
+    b.onclick = () => {
+      if (b.dataset.cat === SHOP.categoryFilter) return;
+      SHOP.categoryFilter = b.dataset.cat;
+      renderFilters();
+      switchGrid();
+    };
   });
+}
+
+/* Category switch: fade the current grid out, swap content, fade the new
+   items in with a stagger (renderGrid applies the per-card delay) so the
+   catalog reflows instead of hard-cutting to the new category. */
+function switchGrid() {
+  const grid = document.getElementById('productGrid');
+  if (prefersReducedMotion) { renderGrid(); return; }
+  grid.classList.add('switching');
+  setTimeout(() => {
+    renderGrid();
+    grid.classList.remove('switching');
+  }, 160);
 }
 
 function renderGrid() {
   const grid = document.getElementById('productGrid');
   const q = SHOP.searchQuery;
+  // Show every product that matches the filter, in stock or not — a
+  // catalog customers can browse and ask about, not an empty wall just
+  // because today's stock happens to be zero. Cards for zero-stock items
+  // render in a distinct "Out of Stock" state (no add-to-cart) instead of
+  // being hidden outright.
   const list = SHOP.products.filter((p) =>
-    (p.stock || 0) > 0 &&
     (SHOP.categoryFilter === 'All' || p.category === SHOP.categoryFilter) &&
     (!q || p.name.toLowerCase().includes(q))
   );
   if (list.length === 0) {
-    grid.innerHTML = '<div class="empty-state">No products available right now. Please check back soon.</div>';
+    const waNumber = (SHOP.settings.whatsappNumber || '').replace(/\D/g, '');
+    const scope = SHOP.categoryFilter !== 'All' ? ` for ${SHOP.categoryFilter}` : '';
+    const waText = encodeURIComponent(`Hi, could you let me know what's available${scope}?`);
+    grid.innerHTML = `<div class="empty-state">
+      <svg class="empty-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M7 16 24 6l17 10" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        <rect x="7" y="16" width="34" height="24" rx="2" stroke="currentColor" stroke-width="2"/>
+        <path d="M24 24v10M18 27h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <h3>Nothing listed here yet</h3>
+      <p>Message us on WhatsApp and we'll tell you what's available.</p>
+      <a class="btn" href="https://wa.me/${waNumber}?text=${waText}" target="_blank">Ask on WhatsApp</a>
+    </div>`;
     return;
   }
   const waNumber = (SHOP.settings.whatsappNumber || '').replace(/\D/g, '');
-  grid.innerHTML = list.map((p) => {
+  grid.innerHTML = list.map((p, idx) => {
+    const inStock = (p.stock || 0) > 0;
     const hasPrice = p.sellingPrice && p.sellingPrice > 0;
-    const waText = encodeURIComponent(`Hi, I'm interested in "${p.name}". Can you tell me the price?`);
-    return `<div class="card reveal">
-      <div class="thumb">${p.photo ? `<img src="${p.photo}">` : 'photo'}</div>
+    const askText = hasPrice
+      ? `Hi, I'm interested in "${p.name}". Is it back in stock?`
+      : `Hi, I'm interested in "${p.name}". Can you tell me the price?`;
+    const waText = encodeURIComponent(askText);
+    const delay = prefersReducedMotion ? 0 : Math.min(idx * 35, 300);
+    let actionHtml;
+    if (!inStock) {
+      actionHtml = `<div class="price">${hasPrice ? money(p.sellingPrice) : 'Ask for Price'}</div><a class="ask-btn" href="https://wa.me/${waNumber}?text=${waText}" target="_blank">Notify Me</a>`;
+    } else if (hasPrice) {
+      actionHtml = `<div class="price">${money(p.sellingPrice)}</div><button class="add" data-add="${p.id}">+</button>`;
+    } else {
+      actionHtml = `<div class="price">Ask for Price</div><a class="ask-btn" href="https://wa.me/${waNumber}?text=${waText}" target="_blank">Ask</a>`;
+    }
+    return `<div class="card reveal${inStock ? '' : ' oos'}" style="transition-delay:${delay}ms">
+      <div class="thumb"><img src="${p.photo || placeholderImage(p.name)}" onerror="this.onerror=null;this.src=placeholderImage('${escapeHtml(p.name).replace(/'/g, "\\'")}')">${inStock ? '' : '<span class="oos-tag">Out of Stock</span>'}</div>
       <div class="info">
         <div class="cat-tag">${escapeHtml(p.category)}</div>
         <h3>${escapeHtml(p.name)}</h3>
-        <div class="row">
-          ${hasPrice
-            ? `<div class="price">${money(p.sellingPrice)}</div><button class="add" data-add="${p.id}">+</button>`
-            : `<div class="price">Ask for Price</div><a class="ask-btn" href="https://wa.me/${waNumber}?text=${waText}" target="_blank">Ask</a>`}
-        </div>
+        <div class="row">${actionHtml}</div>
       </div>
     </div>`;
   }).join('');
   grid.querySelectorAll('[data-add]').forEach((btn) => {
-    btn.onclick = () => addToCart(btn.dataset.add);
+    btn.onclick = () => addToCart(btn.dataset.add, btn);
   });
   grid.querySelectorAll('.card').forEach(observeReveal);
 }
 
-function addToCart(productId) {
+function addToCart(productId, btnEl) {
   const p = SHOP.products.find((x) => x.id === productId);
   if (!p) return;
   const existing = SHOP.cart.find((it) => it.productId === productId);
@@ -141,9 +234,27 @@ function addToCart(productId) {
   else SHOP.cart.push({ productId: p.id, name: p.name, price: p.sellingPrice, qty: 1 });
   saveCartToStorage();
   updateCartCount();
+  bumpCartBtn();
+  if (btnEl) flashAdded(btnEl);
 }
 function updateCartCount() {
   document.getElementById('cartCount').textContent = SHOP.cart.reduce((s, it) => s + it.qty, 0);
+}
+function bumpCartBtn() {
+  if (prefersReducedMotion) return;
+  const btn = document.getElementById('cartBtn');
+  btn.classList.remove('bump');
+  void btn.offsetWidth;
+  btn.classList.add('bump');
+}
+function flashAdded(btn) {
+  const original = btn.textContent;
+  btn.textContent = '✓';
+  btn.classList.add('added');
+  setTimeout(() => {
+    btn.textContent = original;
+    btn.classList.remove('added');
+  }, 500);
 }
 
 function openCartDrawer() {
@@ -264,19 +375,32 @@ function openCheckoutForm() {
     const address = document.getElementById('co-address').value.trim();
     if (!name || !phone || !address) { alert('Please fill in name, phone and address.'); return; }
     const notes = document.getElementById('co-notes').value.trim();
-    const order = {
-      id: uid('O'), number: null, date: todayISO(), customerName: name, phone, address,
-      items: SHOP.cart.map((it) => ({ productId: it.productId, name: it.name, qty: it.qty, price: it.price })),
-      total, paymentMethod, status: 'pending', notes
-    };
     const placeBtn = document.getElementById('placeOrderBtn');
     placeBtn.disabled = true;
     placeBtn.textContent = 'Placing order...';
+    // Fix #3/#4 (AUDIT_REPORT.md findings 3.2, 2.1): order creation — number
+    // assignment and price — now happens server-side in POST /api/orders.
+    // The price sent here is only a display hint; the server always re-prices
+    // every line from its own product data and ignores this value if it
+    // differs (see server.js /api/orders).
+    let order;
     try {
-      const currentOrders = await apiGet('orders');
-      order.number = `ORD-${String(currentOrders.length + 1).padStart(4, '0')}`;
-      currentOrders.push(order);
-      await apiPut('orders', currentOrders);
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: name, phone, address, notes, paymentMethod,
+          items: SHOP.cart.map((it) => ({ productId: it.productId, qty: it.qty, price: it.price }))
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'Could not place order. Please check your connection and try again.');
+        placeBtn.disabled = false;
+        placeBtn.textContent = 'Place Order';
+        return;
+      }
+      order = data.order;
     } catch (e) {
       alert('Could not place order. Please check your connection and try again.');
       placeBtn.disabled = false;
@@ -288,7 +412,7 @@ function openCheckoutForm() {
     updateCartCount();
     const lines = order.items.map((it) => `${it.name} x${it.qty} = ${money(it.qty * it.price)}`).join('\n');
     const waNumber = (SHOP.settings.whatsappNumber || '').replace(/\D/g, '');
-    const waText = encodeURIComponent(`New order ${order.number}\nName: ${name}\nPhone: ${phone}\nAddress: ${address}\n\n${lines}\n\nTotal: ${money(total)}\nPayment: ${paymentMethod === 'cod' ? 'Cash on Delivery' : 'Bank Transfer'}${notes ? '\nNote: ' + notes : ''}`);
+    const waText = encodeURIComponent(`New order ${order.number}\nName: ${name}\nPhone: ${phone}\nAddress: ${address}\n\n${lines}\n\nTotal: ${money(order.total)}\nPayment: ${paymentMethod === 'cod' ? 'Cash on Delivery' : 'Bank Transfer'}${notes ? '\nNote: ' + notes : ''}`);
     window.open(`https://wa.me/${waNumber}?text=${waText}`, '_blank');
     closeDrawer();
     renderGrid();

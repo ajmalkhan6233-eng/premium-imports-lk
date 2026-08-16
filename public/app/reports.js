@@ -4,7 +4,7 @@ function computeMarketingSourceBreakdown() {
   [['facebook', 'Facebook'], ['tiktok', 'TikTok'], ['direct', 'Direct WhatsApp']].forEach(([src, label]) => {
     const convos = (STATE.waConversations || []).filter((c) => c.source === src);
     const customerIds = new Set(convos.map((c) => c.customerId).filter(Boolean));
-    const sales = STATE.bills.filter((b) => b.type !== 'quote' && b.customerId && customerIds.has(b.customerId));
+    const sales = STATE.bills.filter((b) => b.type !== 'quote' && b.status !== 'voided' && b.customerId && customerIds.has(b.customerId));
     rows.push({ label, conversations: convos.length, salesCount: sales.length, salesTotal: sales.reduce((s, b) => s + (b.total || 0), 0) });
   });
   const webOrders = STATE.orders || [];
@@ -19,6 +19,7 @@ function renderReports() {
   c.innerHTML = `
     <div class="grid">
       <div class="card"><h3>Sales</h3><p class="sub">All bills and credit memos</p><button class="btn small" id="rep-sales">Export CSV</button></div>
+      <div class="card"><h3>Sales by Staff</h3><p class="sub">Who rang up what, and how much</p><button class="btn small" id="rep-staff">Export CSV</button></div>
       <div class="card"><h3>Stock</h3><p class="sub">Current product stock and value</p><button class="btn small" id="rep-stock">Export CSV</button></div>
       <div class="card"><h3>Customer Dues</h3><p class="sub">Outstanding balances</p><button class="btn small" id="rep-dues">Export CSV</button></div>
       <div class="card"><h3>Loans</h3><p class="sub">Lender balances</p><button class="btn small" id="rep-loans">Export CSV</button></div>
@@ -44,14 +45,37 @@ function renderReports() {
     </div>
   `;
   document.getElementById('rep-sales').onclick = () => {
-    const rows = [['Number', 'Type', 'Date', 'Time', 'Customer', 'Total', 'Payment', 'Paid', 'Balance Due', 'By', 'Source']];
-    STATE.bills.filter((b) => b.type !== 'quote').forEach((b) => rows.push([b.number, b.type, b.date, b.time, b.customerName, b.total, b.paymentType, b.paid, b.balanceDue, b.by, b.source]));
+    // Voided bills stay in this export (it's the full audit trail, not a
+    // "how much did we make" total) but get a Status column so they read as
+    // reversed, not as real revenue.
+    const rows = [['Number', 'Type', 'Status', 'Date', 'Time', 'Customer', 'Total', 'Payment', 'Paid', 'Balance Due', 'By', 'Source']];
+    STATE.bills.filter((b) => b.type !== 'quote').forEach((b) => rows.push([b.number, b.type, billStatus(b).label, b.date, b.time, b.customerName, b.total, b.paymentType, b.paid, b.balanceDue, b.by, b.source]));
     downloadCsv(rows, 'sales.csv');
+  };
+  document.getElementById('rep-staff').onclick = () => {
+    // Voided bills excluded — a reversed sale isn't a real sale attributed
+    // to anyone. Groups by `by` (the authenticated session's own user at
+    // sale time, server.js POST /api/bills — never client-editable), so
+    // this can't be gamed by attributing a sale to someone else.
+    const active = STATE.bills.filter((b) => b.type !== 'quote' && b.status !== 'voided');
+    const byStaff = {};
+    active.forEach((b) => {
+      const name = b.by || 'Unknown';
+      if (!byStaff[name]) byStaff[name] = { count: 0, total: 0 };
+      byStaff[name].count += 1;
+      byStaff[name].total += b.total || 0;
+    });
+    const rows = [['Staff', 'Bills', 'Total Sales']];
+    Object.keys(byStaff).sort((a, b) => byStaff[b].total - byStaff[a].total).forEach((name) => {
+      rows.push([name, byStaff[name].count, byStaff[name].total]);
+    });
+    downloadCsv(rows, 'sales-by-staff.csv');
   };
   document.getElementById('rep-netprofit').onclick = () => {
     const from = document.getElementById('rep-np-from').value;
     const to = document.getElementById('rep-np-to').value;
-    const bills = STATE.bills.filter((b) => b.type !== 'quote' && (!from || b.date >= from) && (!to || b.date <= to));
+    // Voided bills are excluded — a reversed sale made no real profit.
+    const bills = STATE.bills.filter((b) => b.type !== 'quote' && b.status !== 'voided' && (!from || b.date >= from) && (!to || b.date <= to));
     const rows = [['Number', 'Date', 'Customer', 'Sale Subtotal', 'Discount', 'Sale Total', 'Cost Total', 'Net Profit']];
     let grandProfit = 0;
     bills.forEach((b) => {

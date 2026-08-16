@@ -4,5 +4,7 @@ data.json.tmp
 backups/
 *.log
 secrets.json
+sessions.json
+uploads/
 whatsapp-bridge/auth/
 whatsapp-bridge/qr.png

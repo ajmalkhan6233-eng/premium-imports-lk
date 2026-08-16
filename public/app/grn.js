@@ -1,7 +1,12 @@
 /* ================= GRN ================= */
+// Fails open (true) if uiConfig hasn't loaded yet — see app.js fetchUiConfig.
+function grnPhotoScanEnabled() {
+  return !STATE.uiConfig || !STATE.uiConfig.pos || !STATE.uiConfig.pos.features || STATE.uiConfig.pos.features.grnPhotoScan !== false;
+}
 let grnDraft = null;
+let grnHistoryQuery = '';
 function renderGRN() {
-  if (!grnDraft) grnDraft = { vendorId: null, vendorName: '', invoiceNumber: '', discount: 0, items: [], aiSuggestions: [] };
+  if (!grnDraft) grnDraft = { vendorId: null, vendorName: '', invoiceNumber: '', discount: 0, items: [], aiSuggestions: [], attachment: null };
   if (!grnDraft.aiSuggestions) grnDraft.aiSuggestions = [];
   const c = document.getElementById('pageContent');
   const subtotal = grnDraft.items.reduce((s, it) => s + it.qty * it.cost, 0);
@@ -17,10 +22,23 @@ function renderGRN() {
         </select>
       </div>
       <div class="field"><label>Invoice number</label><input id="grn-invoice-number" placeholder="From the supplier's paper invoice" value="${escapeHtml(grnDraft.invoiceNumber || '')}"></div>
+      <div class="field">
+        <label>Supplier invoice attachment (optional — fallback alongside Scan Photo)</label>
+        ${grnDraft.attachment ? `
+          <div class="list-row" style="cursor:default">
+            <div><div class="title">${escapeHtml(grnDraft.attachment.filename)}</div><div class="sub">Attached</div></div>
+            <div style="display:flex;gap:8px">
+              <a class="btn small secondary" style="text-decoration:none" href="${grnDraft.attachment.dataUrl}" download="${escapeHtml(grnDraft.attachment.filename)}">View</a>
+              <button class="btn small danger" id="grn-attachment-remove">Remove</button>
+            </div>
+          </div>
+        ` : `<button class="btn small secondary" id="grn-attachment-btn">\u{1F4CE} Attach Photo / PDF</button>`}
+        <input type="file" accept="image/*,application/pdf" id="grn-attachment-input" class="hidden">
+      </div>
     </div>
     <div class="section-title"><h3>Items</h3>
       <div style="display:flex;gap:8px">
-        <button class="btn small secondary" id="grn-scan-photo">📷 Scan Photo</button>
+        ${grnPhotoScanEnabled() ? '<button class="btn small secondary" id="grn-scan-photo">📷 Scan Photo</button>' : ''}
         <button class="btn small" id="grn-add-item">+ Add Line</button>
       </div>
     </div>
@@ -39,7 +57,7 @@ function renderGRN() {
       `).join('')}
     `}
     <div class="section-title"><h3>Confirmed Lines</h3></div>
-    ${grnDraft.items.length === 0 ? '<div class="empty-state">No items added yet.</div>' :
+    ${grnDraft.items.length === 0 ? '<div class="empty-state"><div class="empty-icon">\u{1F4E5}</div><div>No items added yet — scan a photo or add a line above.</div></div>' :
       grnDraft.items.map((it, idx) => {
         const last = findLastVendorPrice(grnDraft.vendorId, it.productId);
         const priceFlag = last && last.cost !== it.cost
@@ -58,7 +76,22 @@ function renderGRN() {
       <p class="sub">Check this matches the paper invoice before saving.</p>
     </div>
     <button class="btn" style="margin-top:14px" id="grn-save" ${grnDraft.items.length === 0 ? 'disabled' : ''}>Save GRN</button>
+
+    <div class="section-title"><h3>Recent GRNs</h3></div>
+    <input id="grn-history-search" placeholder="Search by vendor or invoice number..." value="${escapeHtml(grnHistoryQuery)}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px">
+    <div id="grn-history-list">${renderGrnHistoryList()}</div>
   `;
+  const attachBtn = document.getElementById('grn-attachment-btn');
+  if (attachBtn) attachBtn.onclick = () => document.getElementById('grn-attachment-input').click();
+  const attachRemoveBtn = document.getElementById('grn-attachment-remove');
+  if (attachRemoveBtn) attachRemoveBtn.onclick = () => { grnDraft.attachment = null; renderGRN(); };
+  document.getElementById('grn-attachment-input').onchange = handleGrnAttachmentFile;
+  document.getElementById('grn-history-search').oninput = (e) => {
+    grnHistoryQuery = e.target.value;
+    document.getElementById('grn-history-list').innerHTML = renderGrnHistoryList();
+    bindGrnHistoryEvents();
+  };
+  bindGrnHistoryEvents();
   document.getElementById('grn-vendor').onchange = (e) => {
     const val = e.target.value;
     if (val === '__new__') { e.target.value = grnDraft.vendorId || ''; openQuickAddVendor(); return; }
@@ -72,7 +105,8 @@ function renderGRN() {
     renderGRN();
   };
   document.getElementById('grn-add-item').onclick = openGrnLineForm;
-  document.getElementById('grn-scan-photo').onclick = startGrnScan;
+  const grnScanBtn = document.getElementById('grn-scan-photo');
+  if (grnScanBtn) grnScanBtn.onclick = startGrnScan;
   document.getElementById('grn-scan-input').onchange = handleGrnScanFile;
   c.querySelectorAll('[data-idx]').forEach((btn) => {
     btn.onclick = (e) => { e.stopPropagation(); grnDraft.items.splice(parseInt(btn.dataset.idx, 10), 1); renderGRN(); };
@@ -105,7 +139,7 @@ function showScanSetupModal(kind) {
 async function startGrnScan() {
   if (STATE.secretsStatus === null) {
     try {
-      const res = await fetch('/api/grn-scan/status');
+      const res = await fetch('/api/grn-scan/status', { headers: authHeaders() });
       const data = await res.json();
       STATE.secretsStatus = { configured: !!data.configured };
     } catch (e) {
@@ -128,7 +162,7 @@ function handleGrnScanFile(e) {
     try {
       const res = await fetch('/api/grn-scan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ imageBase64: base64, mediaType: 'image/jpeg' })
       });
       const data = await res.json();
@@ -273,6 +307,63 @@ function openInlineNewProduct(nameGuess) {
     toast('New product added to GRN');
   };
 }
+// Attachment is a fallback alongside the AI Scan Photo flow — this just
+// captures and previews the raw file (image or PDF); it's attached to the
+// GRN record as-is when Save GRN is pressed (see saveGrn()), it doesn't try
+// to read line items out of it the way Scan Photo does.
+function handleGrnAttachmentFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const isImage = file.type.startsWith('image/');
+  if (!isImage && file.type !== 'application/pdf') { toast('Only images or PDF files are supported'); e.target.value = ''; return; }
+  if (file.size > 8 * 1024 * 1024) { toast('File is too large (max 8MB)'); e.target.value = ''; return; }
+  const finish = (dataUrl) => {
+    grnDraft.attachment = { filename: file.name, dataUrl, mediaType: file.type };
+    renderGRN();
+  };
+  if (isImage) compressImage(file, 1600, finish);
+  else readFileAsDataUrl(file, finish);
+  e.target.value = '';
+}
+
+function renderGrnHistoryList() {
+  const q = grnHistoryQuery.trim().toLowerCase();
+  const sorted = [...STATE.grns].sort((a, b) => b.date.localeCompare(a.date));
+  const filtered = q ? sorted.filter((g) => `${g.vendorName} ${g.invoiceNumber}`.toLowerCase().includes(q)) : sorted;
+  if (filtered.length === 0) {
+    return `<div class="empty-state">
+      <div class="empty-icon">\u{1F4E5}</div>
+      <div>${STATE.grns.length === 0 ? 'No GRNs recorded yet.' : 'No GRNs match that search.'}</div>
+    </div>`;
+  }
+  return filtered.map((g) => `
+    <div class="list-row" data-grn-id="${g.id}">
+      <div><div class="title">${escapeHtml(g.number)}${g.invoiceNumber ? ' — Invoice ' + escapeHtml(g.invoiceNumber) : ''}${g.attachment ? ' \u{1F4CE}' : ''}</div>
+        <div class="sub">${escapeHtml(g.vendorName)} · ${fmtDate(g.date)} · ${g.items.length} item(s)</div></div>
+      <strong class="mono">${money(g.total)}</strong>
+    </div>`).join('');
+}
+function bindGrnHistoryEvents() {
+  document.querySelectorAll('#grn-history-list [data-grn-id]').forEach((row) => {
+    row.onclick = () => openGrnHistoryDetail(row.dataset.grnId);
+  });
+}
+function openGrnHistoryDetail(id) {
+  const g = STATE.grns.find((x) => x.id === id);
+  if (!g) return;
+  openModal(`
+    <h3>${escapeHtml(g.number)}</h3>
+    <div class="sub">${escapeHtml(g.vendorName)} · ${fmtDate(g.date)}${g.invoiceNumber ? ' · Invoice ' + escapeHtml(g.invoiceNumber) : ''}</div>
+    <table style="margin-top:10px">
+      <tr><th>Item</th><th>Qty</th><th>Cost</th></tr>
+      ${g.items.map((it) => `<tr><td>${escapeHtml(it.name)}</td><td>${it.qty}</td><td>${money(it.cost)}</td></tr>`).join('')}
+    </table>
+    <div style="display:flex;justify-content:space-between;margin-top:10px"><strong>Total</strong><strong>${money(g.total)}</strong></div>
+    ${g.attachment ? `<a class="btn secondary block" style="margin-top:10px;text-decoration:none" href="${g.attachment.dataUrl}" download="${escapeHtml(g.attachment.filename)}">\u{1F4CE} View Attachment</a>` : ''}
+    <button class="btn secondary block" style="margin-top:10px" id="gh-close">Close</button>
+  `);
+  document.getElementById('gh-close').onclick = closeModal;
+}
 // Last price this vendor actually charged for this product, from real GRN
 // history — so a price change is something Ajmal notices, not something he
 // has to remember.
@@ -345,30 +436,35 @@ function openGrnLineEdit(idx) {
     renderGRN();
   };
 }
+// Fix #4 (AUDIT_REPORT.md finding 2.3): GRN numbering, stock increment, and
+// the vendor ledger update now happen atomically server-side in
+// POST /api/grns instead of this screen generating the GRN number locally
+// and PUTting four whole collections back.
 async function saveGrn() {
   if (!grnDraft.vendorId) { toast('Select a vendor'); return; }
   if (!grnDraft.invoiceNumber || !grnDraft.invoiceNumber.trim()) { toast('Invoice number is required'); return; }
-  const subtotal = grnDraft.items.reduce((s, it) => s + it.qty * it.cost, 0);
-  const discount = parseFloat(grnDraft.discount) || 0;
-  const total = Math.max(0, subtotal - discount);
-  const grn = {
-    id: uid('G'), number: nextNumber('grn', 'GRN'), date: todayISO(),
-    vendorId: grnDraft.vendorId, vendorName: grnDraft.vendorName, invoiceNumber: grnDraft.invoiceNumber.trim(),
-    items: grnDraft.items, subtotal, discount, total, by: STATE.user
-  };
-  STATE.grns.push(grn);
-  grnDraft.items.forEach((it) => {
-    const p = STATE.products.find((x) => x.id === it.productId);
-    if (p) { p.stock = (p.stock || 0) + it.qty; p.costPrice = it.cost; }
-  });
-  const vendor = STATE.vendors.find((v) => v.id === grnDraft.vendorId);
-  if (vendor) {
-    vendor.purchased = (vendor.purchased || 0) + total;
-    vendor.balance = (vendor.purchased || 0) - (vendor.paid || 0);
-    vendor.ledger = vendor.ledger || [];
-    vendor.ledger.push({ id: uid('L'), type: 'grn', date: todayISO(), amount: total, ref: grn.number, note: '', balanceAfter: vendor.balance, by: STATE.user });
+  const saveBtn = document.getElementById('grn-save');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+  try {
+    const res = await fetch('/api/grns', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        vendorId: grnDraft.vendorId, invoiceNumber: grnDraft.invoiceNumber.trim(),
+        items: grnDraft.items.map((it) => ({ productId: it.productId, qty: it.qty, cost: it.cost })),
+        discount: grnDraft.discount || 0, by: STATE.user, attachment: grnDraft.attachment || null
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) { toast(data.message || 'Could not save GRN'); return; }
+  } catch (e) {
+    toast('Could not reach the server to save the GRN.');
+    return;
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save GRN'; }
   }
-  await Promise.all([saveKey('grns'), saveKey('settings'), saveKey('products'), saveKey('vendors')]);
+  const [grns, products, vendors] = await Promise.all([apiGet('grns'), apiGet('products'), apiGet('vendors')]);
+  STATE.grns = grns; STATE.products = products; STATE.vendors = vendors;
   grnDraft = null;
   toast('GRN saved, stock updated');
   renderGRN();

@@ -12,12 +12,60 @@ const { loadConversations, saveConversations, findOrCreateConversation, logMessa
 const { checkEscalation, HOLDING_REPLY, isWakePhrase } = require('./guards');
 const { checkPaymentPlanIntent, formatPlanMenu, parsePlanChoice } = require('./paymentPlan');
 const { generateReply } = require('./assistant');
+const ledger = require('./ledger');
 
 const AUTH_DIR = path.join(__dirname, 'auth');
 const QR_FILE = path.join(__dirname, 'qr.png');
 // Message IDs the bridge itself sent, so an incoming fromMe event can be
 // told apart from something Nushra typed herself on her own phone.
 const sentMessageIds = new Set();
+// Pending ledger actions awaiting a "yes" from the same sender, keyed by
+// phone. In-memory only (lost on restart) — a lost pending action just
+// means retyping the command, never a wrong write.
+const pendingLedgerActions = new Map();
+
+async function handleLedgerCommand(sock, jid, phone, text, customers) {
+  const cmd = ledger.parseCommand(text);
+  if (!cmd) {
+    await sendReply(sock, jid, ledger.USAGE);
+    return;
+  }
+  if (cmd.type === 'invalid') {
+    await sendReply(sock, jid, "Couldn't read that amount. " + ledger.USAGE);
+    return;
+  }
+  const cu = ledger.findOrCreateAgent(customers, phone, `Agent ${phone}`);
+
+  if (cmd.type === 'bill' || cmd.type === 'paid') {
+    pendingLedgerActions.set(phone, cmd);
+    const verb = cmd.type === 'bill' ? 'Log' : 'Log payment of';
+    await sendReply(sock, jid, `${verb} ${ledger.money(cmd.amount)} for ${cu.name}? Reply YES to confirm.`);
+    return;
+  }
+  if (cmd.type === 'confirm') {
+    const pending = pendingLedgerActions.get(phone);
+    if (!pending) { await sendReply(sock, jid, 'Nothing pending to confirm.'); return; }
+    pendingLedgerActions.delete(phone);
+    const entry = ledger.applyLedgerEntry(cu, pending.type, pending.amount);
+    await putData('customers', customers);
+    const verb = pending.type === 'bill' ? 'Logged' : 'Logged payment of';
+    await sendReply(sock, jid, `${verb} ${ledger.money(entry.amount)}. New balance: ${ledger.money(cu.dues)}.`);
+    return;
+  }
+  if (cmd.type === 'reject') {
+    pendingLedgerActions.delete(phone);
+    await sendReply(sock, jid, 'Cancelled.');
+    return;
+  }
+  if (cmd.type === 'ledger') {
+    await sendReply(sock, jid, ledger.formatLedger(cu));
+    return;
+  }
+  if (cmd.type === 'receipt') {
+    await sendReply(sock, jid, ledger.formatReceipt(cu));
+    return;
+  }
+}
 
 function unwrapMessage(m) {
   if (!m) return null;
@@ -114,6 +162,15 @@ async function handleIncoming(sock, msg) {
   if (!text) return;
 
   const [settings, products, customers] = await Promise.all([getData('settings'), getData('products'), getData('customers')]);
+
+  // Allowlisted staff/agent numbers only: fixed ledger command grammar,
+  // never the AI assistant, never logged as a customer conversation (see
+  // WHATSAPP_LEDGER_COMMAND.md and ledger.js).
+  if (ledger.isAllowlisted(phone, settings)) {
+    await handleLedgerCommand(sock, jid, phone, text, customers);
+    return;
+  }
+
   const list = await loadConversations();
   const conv = findOrCreateConversation(list, phone, text, customers);
   logMessage(conv, 'customer', text);

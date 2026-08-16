@@ -17,11 +17,29 @@
   <button class="cart-btn" id="cartBtn">Cart &middot; <span id="cartCount">0</span></button>
 </header>
 
+<div id="announcementBanner" class="announcement-banner hidden"></div>
+
 <section class="hero">
   <div class="glow"></div>
+  <div class="stamp" aria-hidden="true">
+    <svg viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="url(#stampRing)" stroke-width="2" stroke-dasharray="2.5 4"/>
+      <circle cx="50" cy="50" r="38" fill="none" stroke="url(#stampRing)" stroke-width="1" opacity="0.6"/>
+      <text x="50" y="41" text-anchor="middle" class="stamp-txt stamp-txt-lg">STOCK</text>
+      <text x="50" y="54" text-anchor="middle" class="stamp-txt stamp-txt-lg">VERIFIED</text>
+      <text x="50" y="68" text-anchor="middle" class="stamp-txt stamp-txt-sm">DXB &middot; CMB</text>
+      <defs>
+        <linearGradient id="stampRing" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#C9A24B"/>
+          <stop offset="100%" stop-color="#A9843A"/>
+        </linearGradient>
+      </defs>
+    </svg>
+  </div>
   <div class="eyebrow">Dubai &rarr; Thihariya, direct</div>
-  <h1>Authentic imports, at your door &mdash; not a guessing game.</h1>
+  <h1 id="heroTagline">Authentic imports, at your door &mdash; not a guessing game.</h1>
   <p>Browse real stock, add to cart, and pay cash on delivery or bank transfer. Every item here is what we actually have.</p>
+  <p id="freeDeliveryNote" class="hidden" style="font-size:0.85rem;color:var(--teal);margin-top:-8px"></p>
   <div class="search">
     <input type="text" id="searchInput" placeholder="Search for a product&hellip;">
     <button id="searchBtn">Search</button>
@@ -32,6 +50,7 @@
 </section>
 
 <div class="skyline">
+  <div class="skyline-sweep" aria-hidden="true"></div>
   <svg viewBox="0 0 1200 56" preserveAspectRatio="none">
     <polyline points="0,56 0,36 40,36 40,18 60,18 60,28 90,28 90,9 110,9 110,26 150,26 150,37 190,37 190,16 215,16 215,4 235,4 235,23 270,23 270,38 320,38 320,13 345,13 345,31 400,31 400,21 430,21 430,7 455,7 455,35 500,35 500,24 540,24 540,40 590,40 590,10 615,10 615,28 660,28 660,17 690,17 690,37 740,37 740,5 765,5 765,26 810,26 810,38 860,38 860,14 890,14 890,29 940,29 940,42 990,42 990,19 1020,19 1020,33 1070,33 1070,9 1095,9 1095,38 1140,38 1140,56" fill="none" stroke="#35DFCB" stroke-width="1.1" opacity="0.45"/>
   </svg>
@@ -40,8 +59,15 @@
 <main>
   <div class="cats" id="catFilters"></div>
 
-  <div class="section-label reveal">In stock now</div>
-  <div class="grid" id="productGrid"></div>
+  <div class="section-label reveal">The catalog</div>
+  <div class="grid" id="productGrid">
+    <div class="skeleton-card"><div class="thumb"></div><div class="info"><div class="line w40"></div><div class="line w60"></div></div></div>
+    <div class="skeleton-card"><div class="thumb"></div><div class="info"><div class="line w40"></div><div class="line w60"></div></div></div>
+    <div class="skeleton-card"><div class="thumb"></div><div class="info"><div class="line w40"></div><div class="line w60"></div></div></div>
+    <div class="skeleton-card"><div class="thumb"></div><div class="info"><div class="line w40"></div><div class="line w60"></div></div></div>
+    <div class="skeleton-card"><div class="thumb"></div><div class="info"><div class="line w40"></div><div class="line w60"></div></div></div>
+    <div class="skeleton-card"><div class="thumb"></div><div class="info"><div class="line w40"></div><div class="line w60"></div></div></div>
+  </div>
 
   <div class="how">
     <div class="step reveal"><div class="n">Browse</div><h4>See what's actually in stock</h4><p>Every item here matches real inventory &mdash; no ordering something that's already sold out.</p></div>

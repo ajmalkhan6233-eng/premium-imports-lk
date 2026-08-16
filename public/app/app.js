@@ -28,6 +28,7 @@ const STATE = {
   orders: [],
   waConversations: [],
   documents: [],
+  uiConfig: null,
   activeTab: 'home',
   sellCart: [],
   sellType: 'bill',
@@ -36,10 +37,12 @@ const STATE = {
   sellDiscountType: 'fixed',
   sellDiscountValue: 0,
   sellPaymentPlanIdx: 0,
+  sellPaymentRef: '',
+  sellCashTendered: '',
   secretsStatus: null
 };
 
-const KEYS = ['settings', 'products', 'customers', 'vendors', 'lenders', 'bills', 'grns', 'orders', 'waConversations', 'documents'];
+const KEYS = ['settings', 'products', 'customers', 'vendors', 'lenders', 'bills', 'grns', 'orders', 'waConversations', 'documents', 'expenses'];
 const LOW_STOCK_THRESHOLD = 5;
 
 const NAV_ITEMS = [
@@ -47,35 +50,74 @@ const NAV_ITEMS = [
   { id: 'home', label: 'Home', icon: '\u{1F3E0}' },
   { id: 'products', label: 'Products', icon: '\u{1F4E6}' },
   { id: 'grn', label: 'GRN', icon: '\u{1F4E5}' },
+  { id: 'bills', label: 'Bills', icon: '\u{1F4DC}' },
   { id: 'customers', label: 'Customers', icon: '\u{1F465}' },
   { id: 'vendors', label: 'Vendors', icon: '\u{1F69A}' },
   { id: 'loans', label: 'Loans', icon: '\u{1F4B0}' },
+  { id: 'expenses', label: 'Expenses', icon: '\u{1F4B8}' },
   { id: 'messages', label: 'Messages', icon: '\u{1F4AC}' },
   { id: 'reports', label: 'Reports', icon: '\u{1F4CA}' },
-  { id: 'settings', label: 'Settings', icon: '\u{2699}\u{FE0F}' }
+  { id: 'settings', label: 'Settings', icon: '\u{2699}\u{FE0F}' },
+  { id: 'siteEditor', label: 'Site & POS Editor', icon: '\u{1F5A5}\u{FE0F}' }
 ];
 const MOBILE_PRIMARY = ['sell', 'home', 'products', 'customers'];
-const MOBILE_MORE = ['grn', 'vendors', 'loans', 'messages', 'reports', 'settings'];
-const ADMIN_ONLY_TABS = ['reports', 'settings'];
+const MOBILE_MORE = ['grn', 'bills', 'vendors', 'loans', 'expenses', 'messages', 'reports', 'settings', 'siteEditor'];
+const ADMIN_ONLY_TABS = ['reports', 'settings', 'siteEditor'];
+
+/* ---------------- Auth token (AUTH_COMMAND.md Step 2) ---------------- */
+// Every /api/data/:key and staff-workflow write now requires this on the
+// server (see server.js requireSession/requireAdmin) — kept in localStorage
+// so a page reload doesn't force a re-login, same lifetime pattern as
+// pilk_user already used.
+let AUTH_TOKEN = localStorage.getItem('pilk_token') || null;
+function setAuthToken(token) {
+  AUTH_TOKEN = token;
+  if (token) localStorage.setItem('pilk_token', token);
+  else localStorage.removeItem('pilk_token');
+}
+function authHeaders(extra) {
+  const h = Object.assign({}, extra || {});
+  if (AUTH_TOKEN) h['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+  return h;
+}
 
 /* ---------------- API helpers ---------------- */
 async function apiGet(key) {
-  const res = await fetch(`/api/data/${key}`);
+  const res = await fetch(`/api/data/${key}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Failed to load ${key}`);
   const json = await res.json();
   return json.value;
 }
-async function apiPut(key, value) {
+async function apiPut(key, value, extra) {
   const res = await fetch(`/api/data/${key}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value })
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(Object.assign({ value }, extra || {}))
   });
-  if (!res.ok) throw new Error(`Failed to save ${key}`);
+  if (!res.ok) {
+    let message = `Failed to save ${key}`;
+    try { const body = await res.json(); if (body && body.message) message = body.message; } catch (e) { /* non-JSON error body */ }
+    throw new Error(message);
+  }
   return res.json();
 }
-async function saveKey(key) {
-  await apiPut(key, STATE[key]);
+async function saveKey(key, extra) {
+  await apiPut(key, STATE[key], extra);
+}
+// uiConfig lives on its own routes (server.js /api/admin/ui-config), not
+// the generic /api/data/:key KEYS list — see server.js's comment on why.
+// Fails open to the same defaults server.js's defaultData() ships, so a
+// fetch failure degrades to "everything on" rather than hiding POS buttons
+// or blanking storefront text that used to be hardcoded.
+async function fetchUiConfig() {
+  try {
+    const res = await fetch('/api/admin/ui-config', { headers: authHeaders() });
+    if (!res.ok) throw new Error('failed');
+    const data = await res.json();
+    STATE.uiConfig = data.value;
+  } catch (e) {
+    STATE.uiConfig = { storefront: { heroTagline: '', announcementBanner: { active: false, text: '' } }, pos: { features: { grnPhotoScan: true } } };
+  }
 }
 
 /* ---------------- Utils ---------------- */
@@ -170,7 +212,42 @@ document.addEventListener('keydown', (e) => {
 });
 
 /* ---------------- Boot ---------------- */
+// AUTH_COMMAND.md Step 2: a token in localStorage is only a claim — it's
+// verified against the server's real session store here before anything
+// trusts it. If it's expired or was invalidated by a logout elsewhere,
+// this clears it and falls through to the login screen instead of a
+// broken "signed in" state with no real data access.
+//
+// Only `settings` is fetched before we know whether we're authenticated —
+// it's the one key that's always readable (filtered publicly, full once
+// logged in). Every other key now 401s with no session, so fetching all of
+// KEYS up front (the pre-auth version of this function) would reject the
+// whole Promise.all on the very first 401 and never even reach the login
+// screen. The rest of KEYS is fetched only after login is confirmed.
 async function boot() {
+  try {
+    STATE.settings = await apiGet('settings');
+  } catch (e) {
+    toast('Could not reach server. Is it running?');
+    return;
+  }
+  document.getElementById('loginShopName').textContent = STATE.settings.shopName || 'Premium Imports LK';
+
+  if (AUTH_TOKEN) {
+    try {
+      const res = await fetch('/api/session', { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        STATE.user = data.user;
+        STATE.role = data.role;
+      } else {
+        setAuthToken(null);
+        localStorage.removeItem('pilk_user');
+      }
+    } catch (e) { /* connectivity issue — surfaced by the fetch below either way */ }
+  }
+
+  if (!STATE.user) { showLogin(); return; }
   try {
     const values = await Promise.all(KEYS.map((k) => apiGet(k)));
     KEYS.forEach((k, i) => { STATE[k] = values[i]; });
@@ -178,15 +255,8 @@ async function boot() {
     toast('Could not reach server. Is it running?');
     return;
   }
-  document.getElementById('loginShopName').textContent = STATE.settings.shopName || 'Premium Imports LK';
-  const savedUser = localStorage.getItem('pilk_user');
-  if (savedUser && findUser(savedUser)) {
-    STATE.user = savedUser;
-    STATE.role = findUser(savedUser).role;
-    showApp();
-  } else {
-    showLogin();
-  }
+  await fetchUiConfig();
+  showApp();
 }
 
 function findUser(name) {
@@ -202,41 +272,75 @@ function showLogin() {
   startAmbientBackground('loginAmbientBg');
   let selectedUser = null;
   const picker = document.getElementById('userPicker');
-  picker.innerHTML = (STATE.settings.users || []).map((u) =>
-    `<button class="user-btn" data-user="${escapeHtml(u.name)}">${escapeHtml(u.name)}</button>`
-  ).join('');
-  picker.querySelectorAll('.user-btn').forEach((btn) => {
-    btn.onclick = () => {
-      picker.querySelectorAll('.user-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      selectedUser = btn.dataset.user;
-      document.getElementById('loginError').textContent = '';
-    };
-  });
+  // Names only, from the public /api/login-users endpoint — the days of
+  // fetching the whole settings.users list (PINs included!) just to draw
+  // this picker are gone. See AUTH_COMMAND.md SESSION_LOG.md entry.
+  picker.innerHTML = '<div class="sub">Loading…</div>';
+  fetch('/api/login-users').then((r) => r.json()).then((data) => {
+    picker.innerHTML = (data.users || []).map((name) =>
+      `<button class="user-btn" data-user="${escapeHtml(name)}">${escapeHtml(name)}</button>`
+    ).join('');
+    picker.querySelectorAll('.user-btn').forEach((btn) => {
+      btn.onclick = () => {
+        picker.querySelectorAll('.user-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedUser = btn.dataset.user;
+        document.getElementById('loginError').textContent = '';
+      };
+    });
+  }).catch(() => { picker.innerHTML = '<div class="sub">Could not reach server.</div>'; });
   document.getElementById('pinInput').value = '';
   document.getElementById('loginError').textContent = '';
-  document.getElementById('loginBtn').onclick = () => {
+  document.getElementById('loginBtn').onclick = async () => {
     const pin = document.getElementById('pinInput').value.trim();
     if (!selectedUser) {
       document.getElementById('loginError').textContent = 'Pick a user first.';
       return;
     }
-    const u = findUser(selectedUser);
-    if (!u || u.pin !== pin) {
-      document.getElementById('loginError').textContent = 'Wrong PIN.';
+    const btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    let data;
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: selectedUser, pin })
+      });
+      data = await res.json();
+      if (!res.ok) {
+        document.getElementById('loginError').textContent = data.message || 'Wrong PIN.';
+        btn.disabled = false;
+        return;
+      }
+    } catch (e) {
+      document.getElementById('loginError').textContent = 'Could not reach the server.';
+      btn.disabled = false;
       return;
     }
-    STATE.user = selectedUser;
-    STATE.role = u.role;
-    localStorage.setItem('pilk_user', selectedUser);
+    btn.disabled = false;
+    setAuthToken(data.token);
+    STATE.user = data.user;
+    STATE.role = data.role;
+    localStorage.setItem('pilk_user', data.user);
+    // The pre-login boot() fetch ran with no session, so settings/products
+    // were the narrow public view — refetch everything now that requests
+    // carry a real session, so the app isn't stuck on filtered data.
+    try {
+      const values = await Promise.all(KEYS.map((k) => apiGet(k)));
+      KEYS.forEach((k, i) => { STATE[k] = values[i]; });
+    } catch (e) { /* showApp() proceeds regardless; other calls will surface any real issue */ }
+    await fetchUiConfig();
     showApp();
   };
 }
 
 function logout() {
+  const headers = authHeaders({ 'Content-Type': 'application/json' });
+  setAuthToken(null);
   STATE.user = null;
   STATE.role = null;
   localStorage.removeItem('pilk_user');
+  fetch('/api/logout', { method: 'POST', headers }).catch(() => {});
   showLogin();
 }
 
@@ -246,9 +350,20 @@ function showApp() {
   document.getElementById('sidebarBrand').textContent = STATE.settings.shopName || 'Premium Imports LK';
   document.getElementById('sidebarUser').textContent = `${STATE.user} (${isAdmin() ? 'Admin' : 'Staff'})`;
   document.getElementById('logoutLinkSidebar').onclick = (e) => { e.preventDefault(); logout(); };
+  ensureItemCodes();
   renderNav();
   goTab('sell');
   startLiveClock();
+}
+
+/* ---------------- Live pulse (today's running sales, every screen) ---------------- */
+function renderLivePulse() {
+  const el = document.getElementById('livePulse');
+  if (!el) return;
+  const today = todayISO();
+  const todays = STATE.bills.filter((b) => b.type !== 'quote' && b.status !== 'voided' && b.date === today);
+  const total = todays.reduce((s, b) => s + (b.total || 0), 0);
+  el.innerHTML = `<strong>${money(total)}</strong><span>Today · ${todays.length} sale${todays.length === 1 ? '' : 's'}</span>`;
 }
 
 let liveClockTimer = null;
@@ -314,11 +429,12 @@ function goTab(tab) {
   if (tab === 'sell') sellNeedsCustomerFocus = true;
   if (tab !== 'sell') document.getElementById('sellTotalBarRoot').innerHTML = '';
   const renderers = {
-    home: renderHome, products: renderProducts, sell: renderSell, grn: renderGRN,
-    customers: renderCustomers, vendors: renderVendors, loans: renderLoans,
-    messages: renderMessages, reports: renderReports, settings: renderSettings
+    home: renderHome, products: renderProducts, sell: renderSell, grn: renderGRN, bills: renderBills,
+    customers: renderCustomers, vendors: renderVendors, loans: renderLoans, expenses: renderExpenses,
+    messages: renderMessages, reports: renderReports, settings: renderSettings, siteEditor: renderSiteEditor
   };
   renderers[tab]();
+  renderLivePulse();
 }
 
 /* ---------------- Shared utils (used by multiple screen files) ---------------- */
@@ -341,8 +457,27 @@ function compressImage(file, maxDim, cb) {
 }
 
 
+// Plain base64 read, no compression — for non-image attachments (PDF) where
+// compressImage's <img>/canvas pipeline doesn't apply.
+function readFileAsDataUrl(file, cb) {
+  const reader = new FileReader();
+  reader.onload = (e) => cb(e.target.result);
+  reader.readAsDataURL(file);
+}
+// Derives a bill's display status purely from fields already on the bill —
+// never invents payment history. "Partial" is correct-by-construction (paid
+// > 0 and balanceDue > 0) but won't currently appear: nothing in this app
+// yet records a partial payment against a specific bill (only aggregate
+// customer-level payments exist). Documented rather than faked.
+function billStatus(b) {
+  if (b.status === 'voided') return { label: 'Voided', cls: 'voided' };
+  if (b.type === 'quote') return { label: 'Quote', cls: '' };
+  if ((b.balanceDue || 0) <= 0) return { label: 'Paid', cls: 'ok' };
+  if ((b.paid || 0) > 0 && (b.balanceDue || 0) > 0) return { label: 'Partial', cls: 'due' };
+  return { label: 'Pending', cls: 'due' };
+}
 function labelForLedgerType(t) {
-  return { bill: 'Bill', memo: 'Credit Memo', payment: 'Payment', grn: 'GRN', loan: 'Loan' }[t] || t;
+  return { bill: 'Bill', memo: 'Credit Memo', payment: 'Payment', grn: 'GRN', loan: 'Loan', void: 'Void' }[t] || t;
 }
 
 // Shared running-balance chart for any ledger array (vendors, lenders,
@@ -366,7 +501,9 @@ function renderLedgerChartSvg(ledger) {
   const zeroY = yFor(0).toFixed(1);
   const areaPath = `${linePath} L${points[points.length - 1][0].toFixed(1)},${zeroY} L${points[0][0].toFixed(1)},${zeroY} Z`;
   const dots = entries.map((e, i) => {
-    const isCredit = e.type !== 'payment';
+    // 'void' reverses a bill's effect on dues, so it decreases the balance
+    // owed exactly like a payment does — group it with payments for coloring.
+    const isCredit = e.type !== 'payment' && e.type !== 'void';
     return `<circle class="${isCredit ? 'lc-dot-credit' : 'lc-dot-debit'}" cx="${points[i][0].toFixed(1)}" cy="${points[i][1].toFixed(1)}" r="3"><title>${escapeHtml(fmtDate(e.date))} · ${escapeHtml(labelForLedgerType(e.type))} · ${money(e.amount)} · Balance ${money(e.balanceAfter)}</title></circle>`;
   }).join('');
   const firstLabel = escapeHtml(fmtDate(entries[0].date));
@@ -404,7 +541,10 @@ function computeProductAgingDates() {
     });
   });
   const soldByProduct = {};
-  STATE.bills.filter((b) => b.type !== 'quote').sort((a, b) => a.date.localeCompare(b.date)).forEach((b) => {
+  // Voided bills are excluded: their stock was restored (see POST
+  // /api/bills/:id/void), so treating them as consumed here would make aging
+  // think stock was sold when it's actually still on the shelf.
+  STATE.bills.filter((b) => b.type !== 'quote' && b.status !== 'voided').sort((a, b) => a.date.localeCompare(b.date)).forEach((b) => {
     (b.items || []).forEach((it) => {
       if (!it.productId) return;
       (soldByProduct[it.productId] = soldByProduct[it.productId] || []).push(it.qty);
@@ -435,6 +575,83 @@ function daysInStock(productId, agingMap) {
   const d = map[productId];
   if (!d) return null;
   return Math.max(0, Math.round((Date.now() - Date.parse(d)) / 86400000));
+}
+
+/* ---------------- Item codes ---------------- */
+// Short, human-readable per-product codes (distinct from the internal
+// uid('P') id) — requested so every product has something a staff member
+// can read off a shelf/receipt, not just an opaque internal id. Plain
+// 2-digit numbers (01, 02, ...) — the original "PI-0001" style was judged
+// too long to read/write by hand; see migrateItemCodes() for the one-time
+// switch on existing data.
+function nextItemCode() {
+  const used = new Set(STATE.products.filter((p) => p.itemCode).map((p) => p.itemCode));
+  let n = 1, code;
+  do { code = String(n).padStart(2, '0'); n++; } while (used.has(code));
+  return code;
+}
+// One-time backfill for products that existed before item codes did.
+function ensureItemCodes() {
+  let changed = migrateItemCodes();
+  (STATE.products || []).forEach((p) => {
+    if (!p.itemCode) { p.itemCode = nextItemCode(); changed = true; }
+  });
+  if (changed) saveKey('products');
+}
+// One-time migration: reassign any old "PI-0001"-style code to the new
+// short format, in the same relative order (lowest PI-#### first), so
+// existing labels/receipts stay predictable rather than shuffled randomly.
+function migrateItemCodes() {
+  const old = (STATE.products || []).filter((p) => p.itemCode && /^PI-\d+$/.test(p.itemCode));
+  if (!old.length) return false;
+  old.sort((a, b) => parseInt(a.itemCode.slice(3), 10) - parseInt(b.itemCode.slice(3), 10));
+  old.forEach((p) => { p.itemCode = null; });
+  old.forEach((p) => { p.itemCode = nextItemCode(); });
+  return true;
+}
+
+/* ---------------- Quick lookup (invoice number or customer name) ----------------
+   Shared by the Home search box and Sell's "Return / Void a Bill" button —
+   brought to the front, not buried in Bills/Customers, per Ajmal's own
+   request: he and his staff are the ones running lookups all day. */
+function openQuickLookupModal(prefill) {
+  openModal(`
+    <h3>Look up an invoice or customer</h3>
+    <div class="field"><input id="ql-search" placeholder="Invoice number or customer name..." value="${escapeHtml(prefill || '')}"></div>
+    <div id="ql-results"></div>
+    <button class="btn secondary block" style="margin-top:10px" id="ql-close">Close</button>
+  `);
+  document.getElementById('ql-close').onclick = closeModal;
+  const input = document.getElementById('ql-search');
+  const renderResults = () => {
+    const q = input.value.trim().toLowerCase();
+    const resultsEl = document.getElementById('ql-results');
+    if (!q) { resultsEl.innerHTML = ''; return; }
+    const billMatches = STATE.bills
+      .filter((b) => b.type !== 'quote' && ((b.number || '').toLowerCase().includes(q) || (b.customerName || '').toLowerCase().includes(q)))
+      .sort((a, b) => (b.date + (b.time || '')).localeCompare(a.date + (a.time || '')))
+      .slice(0, 8);
+    const customerMatches = STATE.customers.filter((cu) => cu.name.toLowerCase().includes(q) || (cu.phone || '').includes(input.value.trim())).slice(0, 6);
+    if (billMatches.length === 0 && customerMatches.length === 0) { resultsEl.innerHTML = '<div class="empty-state">No match.</div>'; return; }
+    resultsEl.innerHTML =
+      (billMatches.length ? '<div class="sub" style="padding:4px 6px">Bills</div>' +
+        billMatches.map((b) => {
+          const st = billStatus(b);
+          return `<div class="list-row" data-bill="${b.id}"><div><div class="title">${escapeHtml(b.number || '')} — ${escapeHtml(b.customerName || 'Walk-in')}</div><div class="sub">${fmtDate(b.date)} · ${typeLabel(b)}</div></div><div style="text-align:right"><strong>${money(b.total)}</strong><div><span class="badge ${st.cls}">${st.label}</span></div></div></div>`;
+        }).join('') : '') +
+      (customerMatches.length ? '<div class="sub" style="padding:4px 6px">Customers</div>' +
+        customerMatches.map((cu) => `<div class="list-row" data-customer="${cu.id}"><div><div class="title">${escapeHtml(cu.name)}</div><div class="sub">${escapeHtml(cu.phone || '')}</div></div>${cu.dues > 0 ? `<strong>${money(cu.dues)} due</strong>` : ''}</div>`).join('') : '');
+    resultsEl.querySelectorAll('[data-bill]').forEach((el) => {
+      el.onclick = () => { closeModal(); openBillActions(el.dataset.bill); };
+    });
+    resultsEl.querySelectorAll('[data-customer]').forEach((el) => {
+      el.onclick = () => { closeModal(); goTab('customers'); setTimeout(() => openCustomerLedger(el.dataset.customer), 50); };
+    });
+  };
+  input.oninput = renderResults;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+  renderResults();
+  input.focus();
 }
 
 boot();

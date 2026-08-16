@@ -15,6 +15,7 @@
   --green: #4C7A5E;
   --radius: 10px;
   --shadow: 0 2px 10px rgba(20, 20, 30, 0.06);
+  --mono: ui-monospace, 'SFMono-Regular', 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas, monospace;
 }
 
 /* ---------- Themes — pick your mood in Settings ---------- */
@@ -64,6 +65,10 @@ a { color: var(--secondary-dark); }
 h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
 
 .hidden { display: none !important; }
+
+:focus-visible { outline: 2px solid var(--secondary); outline-offset: 2px; border-radius: 4px; }
+
+.mono { font-family: var(--mono); }
 
 .ambient-bg {
   position: fixed;
@@ -176,7 +181,13 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
   padding: 0 16px;
 }
 .topnav-brand { font-weight: 700; color: var(--accent-dark); font-size: 1rem; white-space: nowrap; flex: 0 0 auto; }
-.topnav-tabs { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; overflow: hidden; }
+/* Was `overflow: hidden` — with 13 tabs (after adding Site & POS Editor)
+   that silently clips whatever doesn't fit at a given window width, with
+   no way to reach the clipped tabs (not even a scrollbar): "Settings"
+   showed as "Settin" and "Site & POS Editor" didn't render at all on a
+   real device. overflow-x: auto makes every tab reachable by scrolling/
+   swiping instead of some just vanishing. */
+.topnav-tabs { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 .topnav-tabs .nav-item, .bottomnav .nav-item {
   display: flex;
   align-items: center;
@@ -219,6 +230,14 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
 }
 .live-clock-time { display: block; font-weight: 600; color: var(--ink); font-size: 0.95rem; }
 .live-clock-date { display: block; }
+
+/* Live pulse — today's running sales total, visible on every screen (not
+   just Home), reusing the live-clock's exact visual language. Purely a
+   read of STATE.bills already in memory — no extra network request. */
+.live-pulse { text-align: right; font-size: 0.8rem; line-height: 1.3; margin-right: 14px; }
+.live-pulse strong { display: block; font-family: var(--mono); font-weight: 700; color: var(--gold-dark); font-size: 0.95rem; }
+.live-pulse span { display: block; color: var(--ink-soft); }
+@media (min-width: 900px) { .live-pulse { font-size: 0.72rem; margin-right: 10px; } .live-pulse strong { font-size: 0.82rem; } }
 
 .bottomnav {
   position: fixed;
@@ -284,8 +303,15 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.75rem; background: var(--cream-2); color: var(--ink-soft); }
 .badge.due { background: #F6E3DB; color: var(--red); }
 .badge.ok { background: #E7EFE4; color: var(--green); }
+.badge.voided { background: var(--cream-2); color: var(--ink-soft); text-decoration: line-through; }
 
+/* Designed empty states — icon + message, with an optional action button
+   (e.g. "No products in stock" -> "Go to GRN"). Plain text-only empty
+   states (most of the app) still work unchanged: the icon/action are
+   opt-in via extra markup, not required by this rule. */
 .empty-state { text-align: center; padding: 40px 20px; color: var(--ink-soft); }
+.empty-state .empty-icon { font-size: 1.8rem; margin-bottom: 8px; opacity: 0.7; }
+.empty-state .btn { margin-top: 12px; }
 
 /* ---------- Forms ---------- */
 .field { margin-bottom: 12px; }
@@ -370,11 +396,64 @@ tbody tr:hover { background: var(--cream-2); }
 .qr-box canvas, .qr-box #qrTarget { margin: 0 auto; }
 
 /* ---------- Sell / POS ---------- */
-.sell-items-area.gated { opacity: 0.45; pointer-events: none; }
-.sell-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(140px, 200px)); }
-.sell-tile { padding: 10px; }
-.sell-tile-photo { width: 100%; height: 70px; object-fit: cover; border-radius: 8px; background: var(--cream-2); margin-bottom: 6px; display: block; }
+/* SELF_SUSTAINING_ADMIN_COMMAND.md Phase 2 POS redesign: classic retail-
+   terminal layout — category rail, product grid, and cart are all visible
+   and usable from the moment the screen opens (no customer-first gate). */
+.sell-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.sell-toolbar .toggle-group { flex-shrink: 0; }
+.sell-search-input { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; font-size: 0.95rem; }
+
+/* Category rail: horizontal scroll strip on mobile (thumb-swipe, same
+   interaction as the existing .pill-filters elsewhere), a real vertical
+   sidebar once there's room for one at desktop widths (see the 900px
+   breakpoint below). */
+.sell-cat-rail { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 10px; -webkit-overflow-scrolling: touch; }
+.sell-cat-rail button { flex-shrink: 0; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--white); font-size: 0.85rem; white-space: nowrap; cursor: pointer; }
+.sell-cat-rail button.active { background: var(--secondary); color: var(--white); border-color: var(--secondary-dark); }
+
+/* Denser, smaller tiles than before, per Ajmal's feedback — more items
+   visible at once, item code shown so a tile maps to a physical label. */
+.sell-grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
+.sell-tile { padding: 7px; }
+.sell-tile-photo { width: 100%; height: 52px; object-fit: cover; border-radius: 7px; background: var(--cream-2); margin-bottom: 5px; display: block; }
+.sell-tile-code { font-family: var(--mono); font-size: 0.68rem; color: var(--accent); }
+.sell-tile-name { font-weight: 600; font-size: 0.88rem; line-height: 1.25; margin: 2px 0 5px; min-height: 2.2em; }
+.sell-tile-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; }
+
+/* Cart panel — wider and more prominent than the old full-width single
+   column, with its own scroll region so a long cart doesn't push the
+   payment/total controls off screen. */
+.sell-cart-panel { display: flex; flex-direction: column; margin-top: 14px; }
+.sell-cart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.sell-cart-head h3 { margin: 0; font-size: 1.05rem; }
+.sell-cart-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--white); }
+.sell-cart-row { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+.sell-cart-row:last-child { border-bottom: none; }
+.sell-cart-row .sci { flex: 1; min-width: 0; }
+.sell-cart-row .scn { font-weight: 600; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sell-cart-row .scc { font-size: 0.78rem; color: var(--ink-soft); display: flex; align-items: center; gap: 4px; font-family: var(--mono); }
+.sell-cart-row .scc input.cart-price-input { width: 66px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; font-family: var(--mono); }
+.sell-cart-row .scq { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.sell-cart-row .sca { min-width: 82px; text-align: right; font-size: 0.95rem; flex-shrink: 0; }
+.sell-cart-footer { margin-top: 10px; }
 .sell-total-spacer { height: 76px; }
+
+/* Mobile (base, above): item picker and cart stack vertically, cart list
+   scrolls within its own 280px box so the payment controls stay reachable
+   without hunting through a long scroll — the sticky total bar (existing
+   .sell-total-bar) stays visible the whole time either way. */
+@media (min-width: 900px) {
+  .sell-split { display: grid; grid-template-columns: 150px minmax(0, 1fr) 400px; gap: 16px; align-items: start; }
+  .sell-grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
+  .sell-cart-panel { margin-top: 0; position: sticky; top: 8px; }
+  .sell-cart-list { max-height: calc(100vh - 340px); }
+  .sell-tile-name { font-size: 0.85rem; }
+  .sell-cart-row .scn { font-size: 0.9rem; }
+  /* Vertical rail: stacked buttons, sticky alongside the grid/cart so the
+     category switcher stays reachable during a long scroll. */
+  .sell-cat-rail { flex-direction: column; overflow-x: visible; padding-bottom: 0; margin-bottom: 0; position: sticky; top: 8px; }
+  .sell-cat-rail button { text-align: left; white-space: normal; }
+}
 .sell-total-bar {
   position: fixed;
   left: 0; right: 0; bottom: 58px;
@@ -445,6 +524,8 @@ tbody tr:hover { background: var(--cream-2); }
   #receiptPrintArea { position: absolute; top: 0; left: 0; width: 100%; }
   #dashPrintArea, #dashPrintArea * { visibility: visible; }
   #dashPrintArea { position: absolute; top: 0; left: 0; width: 100%; }
+  #vendorPrintArea, #vendorPrintArea * { visibility: visible; }
+  #vendorPrintArea { position: absolute; top: 0; left: 0; width: 100%; }
 }
 
 .toast {

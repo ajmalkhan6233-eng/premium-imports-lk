@@ -103,6 +103,14 @@ function renderSettings() {
       <button class="btn small" id="st-save-agingdays">Save</button>
     </div>
 
+    ${isAdmin() ? `
+    <div class="card" style="margin-top:10px">
+      <h3>Backup</h3>
+      <p class="sub" style="margin-top:-6px">Downloads everything — products, bills, customers, vendors, settings — as one file, right now. The server also backs up automatically once a day on its own, but this gives you your own copy whenever you want one.</p>
+      <button class="btn small" id="st-download-backup">Download Backup</button>
+    </div>
+    ` : ''}
+
     <div class="card" style="margin-top:10px">
       <h3>Change PIN (${STATE.user})</h3>
       <div class="field"><label>New PIN</label><input type="password" id="st-newpin" maxlength="8"></div>
@@ -140,6 +148,24 @@ function renderSettings() {
       c.querySelectorAll('#st-theme-group button').forEach((b) => b.classList.toggle('active', b === btn));
     };
   });
+  const backupBtn = document.getElementById('st-download-backup');
+  if (backupBtn) backupBtn.onclick = async () => {
+    backupBtn.disabled = true; backupBtn.textContent = 'Preparing...';
+    try {
+      const res = await fetch('/api/admin/backup', { headers: authHeaders() });
+      if (!res.ok) throw new Error('Backup request failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `premium-imports-lk-backup-${todayISO()}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      toast('Backup downloaded');
+    } catch (e) {
+      toast('Could not download backup');
+    }
+    backupBtn.disabled = false; backupBtn.textContent = 'Download Backup';
+  };
   document.getElementById('st-save-shop').onclick = async () => {
     s.shopName = document.getElementById('st-shopname').value.trim();
     s.whatsappNumber = document.getElementById('st-whatsapp').value.trim();
@@ -149,14 +175,27 @@ function renderSettings() {
     toast('Saved');
   };
   document.getElementById('st-save-bank').onclick = async () => {
+    // Bank details drive the payment QR code shown to real customers, so
+    // the server requires a valid user PIN on any change to them (see
+    // server.js bankDetailsChanged/pinMatchesAnyUser) — re-confirm here
+    // even though STATE.user is already logged in, since the check is
+    // enforced server-side, not just by this prompt.
+    const pin = prompt('Enter your PIN to confirm changing bank details:');
+    if (pin === null) return;
+    const prevBankDetails = s.bankDetails;
     s.bankDetails = {
       accountName: document.getElementById('st-accname').value.trim(),
       accountNumber: document.getElementById('st-accno').value.trim(),
       bankName: document.getElementById('st-bankname').value.trim(),
       branch: document.getElementById('st-branch').value.trim()
     };
-    await saveKey('settings');
-    toast('Saved');
+    try {
+      await saveKey('settings', { pin });
+      toast('Saved');
+    } catch (e) {
+      s.bankDetails = prevBankDetails;
+      toast(e.message || 'Could not save bank details');
+    }
   };
   document.getElementById('st-addplan').onclick = async () => {
     const name = document.getElementById('st-newplan-name').value.trim();

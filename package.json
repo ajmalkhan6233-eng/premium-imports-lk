@@ -6,12 +6,18 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "whatsapp": "node whatsapp-bridge/index.js"
+    "whatsapp": "node whatsapp-bridge/index.js",
+    "start:pm2": "pm2 start ecosystem.config.js",
+    "stop:pm2": "pm2 stop premium-imports-server",
+    "logs:pm2": "pm2 logs premium-imports-server"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc14",
     "express": "^4.19.2",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "pm2": "^7.0.3"
   }
 }

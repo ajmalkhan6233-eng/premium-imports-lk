@@ -1,6 +1,7 @@
 /* ================= LOANS ================= */
 let selectedLenderId = null;
 let lenderLedgerView = 'credit'; // 'credit' (loans given) | 'debit' (repayments) — display split only, ledger array itself stays mixed
+let lenderSearchQuery = '';
 
 function renderLoans() {
   const c = document.getElementById('pageContent');
@@ -13,24 +14,46 @@ function renderLoans() {
           <button class="btn secondary" id="addLenderBtn">+ New Lender</button>
         </div>
         <div class="card" style="margin-top:10px;display:flex;justify-content:space-between"><strong>Total Outstanding</strong><strong>${money(totalOutstanding)}</strong></div>
-        <div style="margin-top:10px">
-          ${STATE.lenders.length === 0 ? '<div class="empty-state">No lenders yet.</div>' :
-            STATE.lenders.map((l) => `
-              <div class="list-row ${l.id === selectedLenderId ? 'active' : ''}" data-id="${l.id}">
-                <div><div class="title">${escapeHtml(l.name)}</div><div class="sub">Given ${money(l.given)} · Repaid ${money(l.repaid)}</div></div>
-                <span class="badge ${l.balance > 0 ? 'due' : 'ok'}">${money(l.balance)}</span>
-              </div>`).join('')}
-        </div>
+        <input id="lender-search" placeholder="Search lenders..." value="${escapeHtml(lenderSearchQuery)}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin-top:10px">
+        <div id="lender-list" style="margin-top:10px">${renderLenderListHtml()}</div>
       </div>
       <div class="split-detail" id="lenderDetail">${renderLenderDetailHtml()}</div>
     </div>
   `;
   document.getElementById('addLoanBtn').onclick = () => openAddLoanForm();
   document.getElementById('addLenderBtn').onclick = () => openLenderForm(null);
-  c.querySelectorAll('.split-list .list-row').forEach((el) => {
+  document.getElementById('lender-search').oninput = (e) => {
+    lenderSearchQuery = e.target.value;
+    document.getElementById('lender-list').innerHTML = renderLenderListHtml();
+    bindLenderListEvents();
+  };
+  bindLenderListEvents();
+  bindLenderDetailEvents();
+}
+function renderLenderListHtml() {
+  const q = lenderSearchQuery.trim().toLowerCase();
+  const list = q ? STATE.lenders.filter((l) => l.name.toLowerCase().includes(q) || (l.phone || '').includes(lenderSearchQuery.trim())) : STATE.lenders;
+  if (list.length === 0) return `<div class="empty-state">${STATE.lenders.length === 0 ? 'No lenders yet.' : 'No lenders match that search.'}</div>`;
+  return list.map((l) => `
+    <div class="list-row ${l.id === selectedLenderId ? 'active' : ''}" data-id="${l.id}">
+      <div><div class="title">${escapeHtml(l.name)}</div><div class="sub">Given ${money(l.given)} · Repaid ${money(l.repaid)}</div></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge ${l.balance > 0 ? 'due' : 'ok'}">${money(l.balance)}</span>
+        ${isAdmin() ? `<button class="btn small secondary" data-edit-lender="${l.id}">Edit</button>
+        <button class="btn small danger" data-delete-lender="${l.id}">Delete</button>` : ''}
+      </div>
+    </div>`).join('');
+}
+function bindLenderListEvents() {
+  document.querySelectorAll('#lender-list .list-row').forEach((el) => {
     el.onclick = () => { selectedLenderId = el.dataset.id; lenderLedgerView = 'credit'; renderLoans(); };
   });
-  bindLenderDetailEvents();
+  document.querySelectorAll('[data-edit-lender]').forEach((btn) => {
+    btn.onclick = (e) => { e.stopPropagation(); openLenderForm(btn.dataset.editLender); };
+  });
+  document.querySelectorAll('[data-delete-lender]').forEach((btn) => {
+    btn.onclick = (e) => { e.stopPropagation(); deleteLender(btn.dataset.deleteLender); };
+  });
 }
 // Selects a lender in the split view — kept as a function (not inlined)
 // since dashboard.js's Loans-outstanding breakdown navigates here by id.
@@ -94,6 +117,18 @@ function bindLenderDetailEvents() {
   });
 }
 
+// Shared by the list row's direct Delete button and the edit form's
+// Delete button. Extra warning if the lender is still owed money.
+function deleteLender(id) {
+  const l = STATE.lenders.find((x) => x.id === id);
+  if (!l) return false;
+  const warn = l.balance > 0 ? ` They're still owed ${money(l.balance)} — deleting them loses that record too.` : '';
+  if (!confirm(`Delete ${l.name}? This cannot be undone.${warn}`)) return false;
+  STATE.lenders = STATE.lenders.filter((x) => x.id !== id);
+  if (selectedLenderId === id) selectedLenderId = null;
+  saveKey('lenders').then(() => { renderLoans(); toast('Lender deleted'); });
+  return true;
+}
 function openLenderForm(id, onSaved) {
   const l = id ? STATE.lenders.find((x) => x.id === id) : null;
   openModal(`
@@ -108,12 +143,7 @@ function openLenderForm(id, onSaved) {
     </div>
   `);
   document.getElementById('lf-cancel').onclick = closeModal;
-  if (l && isAdmin()) document.getElementById('lf-delete').onclick = () => {
-    if (!confirm(`Delete ${l.name}? This cannot be undone.`)) return;
-    STATE.lenders = STATE.lenders.filter((x) => x.id !== l.id);
-    if (selectedLenderId === l.id) selectedLenderId = null;
-    saveKey('lenders').then(() => { closeModal(); renderLoans(); toast('Lender deleted'); });
-  };
+  if (l && isAdmin()) document.getElementById('lf-delete').onclick = () => { if (deleteLender(l.id)) closeModal(); };
   document.getElementById('lf-save').onclick = async () => {
     const name = document.getElementById('lf-name').value.trim();
     if (!name) { toast('Name is required'); return; }

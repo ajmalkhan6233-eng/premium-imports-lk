@@ -1,4 +1,5 @@
 /* ================= CUSTOMERS ================= */
+let customerSearchQuery = '';
 function renderCustomers() {
   const c = document.getElementById('pageContent');
   c.innerHTML = `
@@ -6,22 +7,46 @@ function renderCustomers() {
       <button class="btn" id="addCustomerBtn">+ Add Customer</button>
       <button class="btn secondary" id="insightsBtn">📊 Purchase Insights</button>
     </div>
-    <div style="margin-top:14px">
-      ${STATE.customers.length === 0 ? '<div class="empty-state">No customers yet.</div>' :
-        STATE.customers.map((cu) => {
-          const nextDue = cu.dues > 0 ? nextDueForCustomer(cu) : null;
-          const overdue = nextDue && nextDue < todayISO();
-          return `
-          <div class="list-row" data-id="${cu.id}">
-            <div><div class="title">${escapeHtml(cu.name)}</div><div class="sub">${escapeHtml(cu.phone || '')}${overdue ? ' · ⚠ overdue since ' + fmtDate(nextDue) : ''}</div></div>
-            <span class="badge ${cu.dues > 0 ? 'due' : 'ok'}">${cu.dues > 0 ? money(cu.dues) + ' due' : 'Settled'}</span>
-          </div>`;
-        }).join('')}
-    </div>
+    <input id="customer-search" placeholder="Search name or phone..." value="${escapeHtml(customerSearchQuery)}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin-top:10px">
+    <div id="customer-list" style="margin-top:14px">${renderCustomerListHtml()}</div>
   `;
   document.getElementById('addCustomerBtn').onclick = () => openCustomerForm(null);
   document.getElementById('insightsBtn').onclick = openSegmentsModal;
-  c.querySelectorAll('.list-row').forEach((el) => el.onclick = () => openCustomerLedger(el.dataset.id));
+  // Filters only #customer-list on each keystroke, not the whole screen —
+  // same pattern as Vendors/Bills, so the search input keeps focus.
+  document.getElementById('customer-search').oninput = (e) => {
+    customerSearchQuery = e.target.value;
+    document.getElementById('customer-list').innerHTML = renderCustomerListHtml();
+    bindCustomerListEvents();
+  };
+  bindCustomerListEvents();
+}
+function renderCustomerListHtml() {
+  const q = customerSearchQuery.trim().toLowerCase();
+  const list = q ? STATE.customers.filter((cu) => cu.name.toLowerCase().includes(q) || (cu.phone || '').includes(customerSearchQuery.trim())) : STATE.customers;
+  if (list.length === 0) return `<div class="empty-state">${STATE.customers.length === 0 ? 'No customers yet.' : 'No customers match that search.'}</div>`;
+  return list.map((cu) => {
+    const nextDue = cu.dues > 0 ? nextDueForCustomer(cu) : null;
+    const overdue = nextDue && nextDue < todayISO();
+    return `
+    <div class="list-row" data-id="${cu.id}">
+      <div><div class="title">${escapeHtml(cu.name)}</div><div class="sub">${escapeHtml(cu.phone || '')}${overdue ? ' · ⚠ overdue since ' + fmtDate(nextDue) : ''}</div></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge ${cu.dues > 0 ? 'due' : 'ok'}">${cu.dues > 0 ? money(cu.dues) + ' due' : 'Settled'}</span>
+        ${isAdmin() ? `<button class="btn small secondary" data-edit-customer="${cu.id}">Edit</button>
+        <button class="btn small danger" data-delete-customer="${cu.id}">Delete</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+function bindCustomerListEvents() {
+  document.querySelectorAll('#customer-list .list-row').forEach((el) => el.onclick = () => openCustomerLedger(el.dataset.id));
+  document.querySelectorAll('[data-edit-customer]').forEach((btn) => {
+    btn.onclick = (e) => { e.stopPropagation(); openCustomerForm(btn.dataset.editCustomer); };
+  });
+  document.querySelectorAll('[data-delete-customer]').forEach((btn) => {
+    btn.onclick = (e) => { e.stopPropagation(); deleteCustomer(btn.dataset.deleteCustomer); };
+  });
 }
 
 /* ---- Purchase-behavior segmentation (rule-based, no AI) ---- */
@@ -29,7 +54,7 @@ function computeCustomerSegments() {
   const cutoff90 = addDaysISO(-90);
   const cutoff30 = addDaysISO(-30);
   const perCustomer = {};
-  STATE.bills.filter((b) => b.type !== 'quote' && b.customerId).forEach((b) => {
+  STATE.bills.filter((b) => b.type !== 'quote' && b.status !== 'voided' && b.customerId).forEach((b) => {
     const rec = perCustomer[b.customerId] || (perCustomer[b.customerId] = { count: 0, count90: 0, lastDate: null, catQty: {} });
     rec.count++;
     if (b.date >= cutoff90) rec.count90++;
@@ -119,6 +144,8 @@ function openCustomerForm(id) {
     <div class="field"><label>Name</label><input id="cf-name" value="${cu ? escapeHtml(cu.name) : ''}"></div>
     <div class="field"><label>Phone</label><input id="cf-phone" value="${cu ? escapeHtml(cu.phone || '') : ''}"></div>
     <div class="field"><label>Address</label><input id="cf-address" value="${cu ? escapeHtml(cu.address || '') : ''}"></div>
+    <div class="field"><label>Credit Limit (optional)</label><input type="number" min="0" step="0.01" id="cf-creditlimit" placeholder="Leave blank for no limit" value="${cu && cu.creditLimit ? cu.creditLimit : ''}"></div>
+    <p class="sub" style="margin-top:-6px">Warns at the Sell screen if a credit sale would push this customer over the limit — doesn't block the sale, staff can still go ahead.</p>
     <div class="field"><label>Notes (internal only — never shown on bills)</label><textarea id="cf-notes" placeholder="Preferences, reminders, anything worth remembering">${cu ? escapeHtml(cu.notes || '') : ''}</textarea></div>
     <div class="modal-actions">
       <button class="btn secondary" id="cf-cancel">Cancel</button>
@@ -127,23 +154,33 @@ function openCustomerForm(id) {
     </div>
   `);
   document.getElementById('cf-cancel').onclick = closeModal;
-  if (cu && isAdmin()) document.getElementById('cf-delete').onclick = () => {
-    if (!confirm(`Delete ${cu.name}? This cannot be undone.`)) return;
-    STATE.customers = STATE.customers.filter((x) => x.id !== cu.id);
-    saveKey('customers').then(() => { closeModal(); renderCustomers(); toast('Customer deleted'); });
-  };
+  if (cu && isAdmin()) document.getElementById('cf-delete').onclick = () => { if (deleteCustomer(cu.id)) closeModal(); };
   document.getElementById('cf-save').onclick = async () => {
     const name = document.getElementById('cf-name').value.trim();
     if (!name) { toast('Name is required'); return; }
     const phone = document.getElementById('cf-phone').value.trim();
     const address = document.getElementById('cf-address').value.trim();
     const notes = document.getElementById('cf-notes').value.trim();
-    if (cu) Object.assign(cu, { name, phone, address, notes });
-    else STATE.customers.push({ id: uid('C'), name, phone, address, notes, dues: 0, ledger: [] });
+    const creditLimitRaw = parseFloat(document.getElementById('cf-creditlimit').value);
+    const creditLimit = isNaN(creditLimitRaw) || creditLimitRaw < 0 ? null : creditLimitRaw;
+    if (cu) Object.assign(cu, { name, phone, address, notes, creditLimit });
+    else STATE.customers.push({ id: uid('C'), name, phone, address, notes, creditLimit, dues: 0, ledger: [] });
     await saveKey('customers');
     closeModal();
     renderCustomers();
   };
+}
+// Shared by the row's direct Delete button and the edit form's Delete
+// button. Extra warning if the customer has outstanding dues, since
+// deleting them also loses that ledger/dues record, not just contact info.
+function deleteCustomer(id) {
+  const cu = STATE.customers.find((x) => x.id === id);
+  if (!cu) return false;
+  const warn = cu.dues > 0 ? ` They still owe ${money(cu.dues)} — deleting them loses that record too.` : '';
+  if (!confirm(`Delete ${cu.name}? This cannot be undone.${warn}`)) return false;
+  STATE.customers = STATE.customers.filter((x) => x.id !== id);
+  saveKey('customers').then(() => { renderCustomers(); toast('Customer deleted'); });
+  return true;
 }
 function nextDueForCustomer(cu) {
   const dated = (cu.ledger || []).filter((l) => (l.type === 'bill' || l.type === 'memo') && l.dueDate);
@@ -160,7 +197,7 @@ function openCustomerLedger(id) {
     <h3>${escapeHtml(cu.name)}</h3>
     <div class="sub">${escapeHtml(cu.phone || '')} · ${escapeHtml(cu.address || '')}</div>
     ${cu.notes ? `<p class="sub" style="margin-top:4px"><em>${escapeHtml(cu.notes)}</em></p>` : ''}
-    <div class="card" style="margin:10px 0;display:flex;justify-content:space-between"><strong>Dues</strong><strong>${money(cu.dues)}</strong></div>
+    <div class="card" style="margin:10px 0;display:flex;justify-content:space-between"><strong>Dues</strong><strong>${money(cu.dues)}${cu.creditLimit ? ` / ${money(cu.creditLimit)} limit` : ''}</strong></div>
     ${nextDue ? `<div class="card" style="margin:-4px 0 10px;display:flex;justify-content:space-between"><span>${overdue ? '⚠ Overdue since' : 'Next due'}</span><strong${overdue ? ' style="color:var(--red)"' : ''}>${fmtDate(nextDue)}</strong></div>` : ''}
     ${isAdmin() ? '<button class="btn small" id="cl-edit">Edit</button>' : ''}
     <button class="btn small" id="cl-pay">Record Payment</button>
