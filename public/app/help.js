@@ -89,15 +89,15 @@ const HELP_SECTIONS = [
     en: {
       title: 'Coming soon',
       body: [
-        'Barcode scanning at checkout, splitting a sale between cash and card, an end-of-day till-reconciliation report, remote login from outside the shop WiFi, offline sale capture with auto-sync, and the 15-question setup wizard for new accounts.',
-        'These are being actively built. This Help screen and the full handbook will be updated with real instructions the moment each one works — not before.'
+        'Barcode scanning at checkout, splitting a sale between cash and card, an end-of-day till-reconciliation report, and remote login from outside the shop WiFi. This screen will be updated the moment each one works.',
+        'Already done: the 15-question setup wizard (Settings → Run Setup Wizard), and the Sell screen now saves a sale even with no connection and syncs it automatically once you’re back online (not yet covering GRN or other screens).'
       ]
     },
     ta: {
       title: 'விரைவில் வரும்',
       body: [
-        'பில்லிங்கில் Barcode ஸ்கேன், cash+card பிரித்துச் செலுத்துதல், நாள் முடிவு காசு சரிபார்ப்பு அறிக்கை, கடைக்கு வெளியே இருந்து லாகின், offline விற்பனை + auto-sync, புதிய கணக்குகளுக்கான 15-கேள்வி அமைவு வழிகாட்டி.',
-        'இவை தற்போது கட்டப்பட்டு வருகின்றன. ஒவ்வொன்றும் தயாரான உடன், இந்தத் திரையும் முழு கையேடும் உண்மையான வழிமுறைகளுடன் புதுப்பிக்கப்படும்.'
+        'பில்லிங்கில் Barcode ஸ்கேன், cash+card பிரித்துச் செலுத்துதல், நாள் முடிவு காசு சரிபார்ப்பு அறிக்கை, கடைக்கு வெளியே இருந்து லாகின். ஒவ்வொன்றும் தயாரான உடன் இந்தத் திரை புதுப்பிக்கப்படும்.',
+        'ஏற்கனவே தயார்: 15-கேள்வி அமைவு வழிகாட்டி (Settings → Run Setup Wizard), மற்றும் Sell திரை இப்போது இணைப்பு இல்லாமலும் விற்பனையை பதிவு செய்து மீண்டும் இணைப்பு வந்தவுடன் தானாக sync செய்யும் (Sell திரைக்கு மட்டும், இன்னும் GRN-க்கு இல்லை).'
       ]
     }
   }

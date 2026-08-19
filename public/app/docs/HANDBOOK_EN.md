@@ -41,11 +41,13 @@ something happens.
 
 > **Coming soon (in active development, not yet available):**
 > barcode scanning at checkout, splitting one sale between cash and
-> card, an end-of-day till-reconciliation report, logging in from
-> outside the shop's WiFi, and offline sale capture on a phone with
-> auto-sync when it reconnects. This handbook will be updated with real
+> card, an end-of-day till-reconciliation report, and logging in from
+> outside the shop's WiFi. This handbook will be updated with real
 > instructions for each of these the moment they're built — not before.
-> (The 15-question setup wizard is done — see §18 below.)
+> (The 15-question setup wizard is done — see §18. The Sell screen now
+> also captures a sale even with no connection and syncs it
+> automatically once you're back online — see §20 below. This doesn't
+> yet cover GRN or other screens, only Sell.)
 
 ---
 
@@ -435,3 +437,35 @@ purpose, so that:
 - the **in-app Help screen** pulls a condensed version of this same
   structure, so the short version in the app and the full version here
   never drift into contradicting each other.
+
+---
+
+## 20. Selling With No Connection
+
+The **Sell** screen keeps working even if the shop's WiFi or the
+internet drops mid-shift.
+
+- **What happens:** if you tap Complete Sale with no connection, the
+  sale is saved on that device instead of failing. You'll see a "Saved
+  offline" confirmation with a temporary reference number (not a real
+  bill number yet — that's assigned once it syncs) and the item count/
+  total. Stock on that device's screen updates immediately so you don't
+  accidentally oversell the same item again before reconnecting.
+- **Syncing back:** the moment that device is back online — home WiFi
+  or mobile data, either works — it automatically sends the saved
+  sale(s) to the server in the background. A small badge near the top
+  right shows **"N pending sync"** while this is happening, and clears
+  once everything's synced. You don't have to do anything for a normal
+  sync to happen.
+- **If something needs your attention:** occasionally a saved sale
+  can't sync for a real reason — most commonly, the stock it needed was
+  sold by someone else in the meantime. That sale is never silently
+  dropped or double-sold: the badge turns into **"N needs attention"**
+  (tap it to see why, and to Retry or, if it truly shouldn't be billed,
+  Discard it).
+- **What this doesn't cover yet:** GRN and every other screen still
+  need a live connection today — only Sell captures offline. Closing
+  the app entirely while offline and reopening it also still needs one
+  successful connection to sign back in; this covers the WiFi dropping
+  while you're already signed in and working, which is the common
+  real-world case.
