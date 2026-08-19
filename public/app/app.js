@@ -62,7 +62,7 @@ const NAV_ITEMS = [
   { id: 'help', label: 'Help', icon: '\u{2753}' },
   // Deliberately not in MOBILE_PRIMARY/MOBILE_MORE — reached via a button
   // inside Settings, not a permanent nav tab (one-time/rare setup flow).
-  { id: 'onboarding', label: 'Setup Wizard', icon: '\u{1F4CB}' }
+  { id: 'onboarding', label: 'Shop Setup', icon: '\u{1F4CB}' }
 ];
 const MOBILE_PRIMARY = ['sell', 'home', 'products', 'customers'];
 const MOBILE_MORE = ['grn', 'bills', 'vendors', 'loans', 'expenses', 'messages', 'reports', 'settings', 'siteEditor', 'help'];
