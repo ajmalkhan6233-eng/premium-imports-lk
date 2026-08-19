@@ -40,7 +40,7 @@ function renderVendorListHtml() {
     <div class="list-row ${v.id === selectedVendorId ? 'active' : ''}" data-id="${v.id}">
       <div><div class="title">${escapeHtml(v.name)}</div><div class="sub">Purchased ${money(v.purchased)} · Paid ${money(v.paid)}</div></div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="badge ${v.balance > 0 ? 'due' : 'ok'}">${v.balance > 0 ? money(v.balance) + ' due' : 'Settled'}</span>
+        <span class="badge ${v.balance > 0 ? 'warn' : 'ok'}">${v.balance > 0 ? money(v.balance) + ' due' : 'Settled'}</span>
         ${isAdmin() ? `<button class="btn small secondary" data-edit-vendor="${v.id}">Edit</button>
         <button class="btn small danger" data-delete-vendor="${v.id}">Delete</button>` : ''}
       </div>
