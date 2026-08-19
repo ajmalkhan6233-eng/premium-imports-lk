@@ -67,11 +67,11 @@ function productCardHtml(p, agingMap) {
     <div class="sub" style="color:var(--ink-soft);font-size:0.85rem">${escapeHtml(p.category)} ${p.brand ? '· ' + escapeHtml(p.brand) : ''}</div>
     <div style="margin-top:6px;display:flex;justify-content:space-between">
       <strong>${money(p.sellingPrice)}</strong>
-      <span class="badge ${p.stock <= LOW_STOCK_THRESHOLD ? 'due' : 'ok'}">${p.stock} in stock</span>
+      <span class="badge ${p.stock <= LOW_STOCK_THRESHOLD ? 'warn' : 'ok'}">${p.stock} in stock</span>
     </div>
     <div class="sub" style="font-size:0.8rem;color:var(--ink-soft);display:flex;justify-content:space-between;align-items:center">
       <span>Margin: ${margin}${margin !== '—' ? '%' : ''}${days !== null ? ' · Days in stock: ' + days : ''}</span>
-      ${isAging ? '<span class="badge due">Aging</span>' : ''}
+      ${isAging ? '<span class="badge warn">Aging</span>' : ''}
     </div>
     ${isAdmin() ? `<div style="display:flex;gap:6px;margin-top:8px">
       <button class="btn small secondary" data-edit-product="${p.id}" style="flex:1">Edit</button>
