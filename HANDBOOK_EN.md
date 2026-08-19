@@ -42,10 +42,10 @@ something happens.
 > **Coming soon (in active development, not yet available):**
 > barcode scanning at checkout, splitting one sale between cash and
 > card, an end-of-day till-reconciliation report, logging in from
-> outside the shop's WiFi, offline sale capture on a phone with
-> auto-sync when it reconnects, and the 15-question setup wizard for
-> new business accounts. This handbook will be updated with real
+> outside the shop's WiFi, and offline sale capture on a phone with
+> auto-sync when it reconnects. This handbook will be updated with real
 > instructions for each of these the moment they're built — not before.
+> (The 15-question setup wizard is done — see §18 below.)
 
 ---
 
@@ -380,16 +380,46 @@ might break isn't a real backup.
 
 ---
 
-## 18. The Onboarding Questionnaire
+## 18. The Shop Setup Wizard
 
-*This section will be written once the 15-question list is provided and
-the in-app flow is built. In short: any brand-new business account will
-answer 15 questions about how the shop operates (pricing style,
-inventory detail needed, whether credit accounts are offered, receipt
-format, and more), and the system will use those answers to switch on
-sensible defaults automatically instead of asking every setting one by
-one. This document will explain each question and exactly which
-setting(s) it changes, once that's real.*
+**Settings → Run Setup Wizard** (Admin only). 15 quick questions about
+how your shop actually operates, instead of hunting through Settings
+field by field. Nothing is changed until the last step, where you see a
+full before → after list of exactly what will change and confirm it —
+answer as much or as little as you like, and skip anything that doesn't
+apply to your shop.
+
+> **Note:** the 15 questions below are a first draft, written to cover
+> the settings that already exist in this system — not a finalized list.
+> If a question doesn't fit how you actually run things, say so and it
+> can be changed.
+
+1. Shop name
+2. WhatsApp number customers should reach you on
+3. Typical opening hours
+4. Product categories you sell
+5. Whether you offer credit / pay-later sales
+6. If yes, what repayment windows you offer (e.g. "1 week," "30 days")
+7. What number your next bill should start from (useful if you're
+   moving from an old paper/system count)
+8. Whether you deliver, and your base delivery area
+9. A free-delivery minimum order amount, if you have one
+10. Any delivery notes worth showing customers
+11. How many days of a product not selling counts as "aging stock" for
+    the Products screen
+12. How the WhatsApp assistant should handle customers (simple FAQ only,
+    AI conversation, AI + photos, or full AI + payment plans)
+13. What name the WhatsApp assistant should introduce itself as
+14. Bank account details for the payment QR code (optional — this one
+    is protected by your PIN, same as changing it directly in Settings,
+    since it's the account customers send money to)
+15. Anything else about how your shop runs worth noting
+
+Answers map directly onto real settings already used throughout the
+app — Shop, Bank Details, Payment Plans, Billing, Delivery Zones,
+Inventory aging, and the WhatsApp Assistant tier, all in Settings today.
+Nothing here is a separate system; it's a faster way into the same
+settings.
 
 ---
 
