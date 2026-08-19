@@ -46,8 +46,8 @@ function renderSiteEditor() {
         ${methods.map((m, idx) => `<div class="list-row" data-pm-idx="${idx}">
           <label style="display:flex;align-items:center;gap:8px;flex:1"><input type="checkbox" class="se-pm-enabled" data-pm="${idx}" ${m.enabled !== false ? 'checked' : ''}> ${escapeHtml(m.label)}</label>
           <div style="display:flex;gap:4px">
-            <button class="btn small secondary" data-pm-up="${idx}" ${idx === 0 ? 'disabled' : ''}>↑</button>
-            <button class="btn small secondary" data-pm-down="${idx}" ${idx === methods.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="btn small secondary" data-pm-up="${idx}" ${idx === 0 ? 'disabled' : ''} aria-label="Move ${escapeHtml(m.label)} up">↑</button>
+            <button class="btn small secondary" data-pm-down="${idx}" ${idx === methods.length - 1 ? 'disabled' : ''} aria-label="Move ${escapeHtml(m.label)} down">↓</button>
           </div>
         </div>`).join('')}
       </div>

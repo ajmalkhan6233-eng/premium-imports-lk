@@ -58,10 +58,11 @@ const NAV_ITEMS = [
   { id: 'messages', label: 'Messages', icon: '\u{1F4AC}' },
   { id: 'reports', label: 'Reports', icon: '\u{1F4CA}' },
   { id: 'settings', label: 'Settings', icon: '\u{2699}\u{FE0F}' },
-  { id: 'siteEditor', label: 'Site & POS Editor', icon: '\u{1F5A5}\u{FE0F}' }
+  { id: 'siteEditor', label: 'Site & POS Editor', icon: '\u{1F5A5}\u{FE0F}' },
+  { id: 'help', label: 'Help', icon: '\u{2753}' }
 ];
 const MOBILE_PRIMARY = ['sell', 'home', 'products', 'customers'];
-const MOBILE_MORE = ['grn', 'bills', 'vendors', 'loans', 'expenses', 'messages', 'reports', 'settings', 'siteEditor'];
+const MOBILE_MORE = ['grn', 'bills', 'vendors', 'loans', 'expenses', 'messages', 'reports', 'settings', 'siteEditor', 'help'];
 const ADMIN_ONLY_TABS = ['reports', 'settings', 'siteEditor'];
 
 /* ---------------- Auth token (AUTH_COMMAND.md Step 2) ---------------- */
@@ -393,14 +394,14 @@ function renderNav() {
   const bottomNav = document.getElementById('bottomNav');
   const primaryHtml = MOBILE_PRIMARY.map((id) => navItemHtml(NAV_ITEMS.find((n) => n.id === id))).join('');
   bottomNav.innerHTML = primaryHtml + `
-    <div class="nav-item" id="moreNavBtn"><span class="icon">\u{2630}</span><span>More</span></div>`;
+    <button type="button" class="nav-item" id="moreNavBtn"><span class="icon" aria-hidden="true">\u{2630}</span><span>More</span></button>`;
   bottomNav.querySelectorAll('.nav-item[data-tab]').forEach((el) => {
     el.onclick = () => goTab(el.dataset.tab);
   });
   document.getElementById('moreNavBtn').onclick = showMoreSheet;
 }
 function navItemHtml(item) {
-  return `<div class="nav-item" data-tab="${item.id}"><span class="icon">${item.icon}</span><span>${item.label}</span></div>`;
+  return `<button type="button" class="nav-item" data-tab="${item.id}"><span class="icon" aria-hidden="true">${item.icon}</span><span>${item.label}</span></button>`;
 }
 function showMoreSheet() {
   const visibleMore = MOBILE_MORE.filter((id) => isAdmin() || !ADMIN_ONLY_TABS.includes(id));
@@ -422,7 +423,9 @@ function goTab(tab) {
   }
   STATE.activeTab = tab;
   document.querySelectorAll('.nav-item[data-tab]').forEach((el) => {
-    el.classList.toggle('active', el.dataset.tab === tab);
+    const isActive = el.dataset.tab === tab;
+    el.classList.toggle('active', isActive);
+    if (isActive) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
   });
   document.getElementById('pageTitle').textContent = NAV_ITEMS.find((n) => n.id === tab).label;
   renderOnlineOrdersBadge();
@@ -431,7 +434,8 @@ function goTab(tab) {
   const renderers = {
     home: renderHome, products: renderProducts, sell: renderSell, grn: renderGRN, bills: renderBills,
     customers: renderCustomers, vendors: renderVendors, loans: renderLoans, expenses: renderExpenses,
-    messages: renderMessages, reports: renderReports, settings: renderSettings, siteEditor: renderSiteEditor
+    messages: renderMessages, reports: renderReports, settings: renderSettings, siteEditor: renderSiteEditor,
+    help: renderHelp
   };
   renderers[tab]();
   renderLivePulse();

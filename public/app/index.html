@@ -13,7 +13,8 @@
   <div class="login-card">
     <h1 id="loginShopName">Premium Imports LK</h1>
     <p>Sign in to continue</p>
-    <div class="user-picker" id="userPicker"></div>
+    <div class="user-picker" id="userPicker" role="group" aria-label="Choose your account"></div>
+    <label for="pinInput" class="sr-only">PIN</label>
     <input type="password" id="pinInput" maxlength="8" placeholder="PIN" inputmode="numeric">
     <div class="error-text" id="loginError"></div>
     <button class="btn block" id="loginBtn">Sign In</button>
@@ -63,6 +64,7 @@
 <script src="expenses.js"></script>
 <script src="messages.js"></script>
 <script src="reports.js"></script>
+<script src="help.js"></script>
 <script src="settings.js"></script>
 <script src="siteEditor.js"></script>
 <script src="app.js"></script>

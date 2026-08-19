@@ -44,6 +44,7 @@ function renderHome() {
     <div class="row" style="margin-bottom:14px">
       <button class="btn secondary" id="home-download">⬇ Download Summary</button>
       <button class="btn secondary" id="home-upload">⬆ Upload Document</button>
+      <button class="btn secondary" id="home-help">❓ Help / Getting Started</button>
     </div>
     <div class="grid">
       <div class="card stat-card" id="stat-sales"><div class="label">Sales — ${label}</div><div class="value">${money(periodSales)}</div></div>
@@ -90,6 +91,7 @@ function renderHome() {
   document.getElementById('monthly-detail-link').onclick = () => renderMonthlyDetail();
   document.getElementById('home-download').onclick = () => downloadDashboardSummary({ label, periodSales, periodProfit, stockValue, totalDues, totalLoans });
   document.getElementById('home-upload').onclick = () => openUploadDocumentModal();
+  document.getElementById('home-help').onclick = () => goTab('help');
   bindDocumentListEvents();
   initNetProfitCard(from, to, label);
   bindAiQueryPanel();
