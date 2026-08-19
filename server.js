@@ -1,4 +1,6 @@
 const express = require('express');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -11,6 +13,8 @@ const TMP_FILE = path.join(__dirname, 'data.json.tmp');
 const BACKUP_DIR = path.join(__dirname, 'backups');
 const SECRETS_FILE = path.join(__dirname, 'secrets.json');
 const SESSIONS_FILE = path.join(__dirname, 'sessions.json');
+const SECURITY_LOG_FILE = path.join(__dirname, 'security.log');
+const BACKUP_RETENTION_DAYS = 14;
 
 // Vision-capable model used for the optional photo-scan features: GRN scan (4A)
 // and Sell-screen "Scan Old Bill". Change here if a newer vision model should be used instead.
@@ -315,6 +319,25 @@ function maybeBackup() {
     fs.copyFileSync(DATA_FILE, backupPath);
   }
   lastBackupDate = stamp;
+  pruneOldBackups();
+}
+
+// SECURITY_HARDENING_COMMAND.md Phase 4C: keep a rolling window instead of
+// unbounded growth. Only touches the daily `data-YYYY-MM-DD.json` snapshots
+// this function itself creates — manual pre-change .bak files and other
+// backups/ contents (deliberately made by hand during past sessions) are
+// left alone.
+function pruneOldBackups() {
+  let files;
+  try { files = fs.readdirSync(BACKUP_DIR); } catch (e) { return; }
+  const cutoff = Date.now() - BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  files.filter((f) => /^data-\d{4}-\d{2}-\d{2}\.json$/.test(f)).forEach((f) => {
+    const dateStr = f.slice(5, 15);
+    const fileTime = new Date(`${dateStr}T00:00:00`).getTime();
+    if (!isNaN(fileTime) && fileTime < cutoff) {
+      try { fs.unlinkSync(path.join(BACKUP_DIR, f)); } catch (e) { /* best-effort */ }
+    }
+  });
 }
 
 function saveData() {
@@ -337,6 +360,45 @@ function bankDetailsChanged(oldSettings, newSettings) {
 function pinMatchesAnyUser(pin, settings) {
   const users = (settings && settings.users) || [];
   return !!pin && users.some((u) => u.pin === pin);
+}
+
+// SECURITY_HARDENING_COMMAND.md Phase 3B: brute-force lockout, shared by
+// staff/admin login and both PIN-gates (bank details, Site & POS editor).
+// In-memory only (resets on restart, same as `sessions` would if not
+// persisted) — a lockout surviving a PM2 restart isn't a requirement here,
+// blunting rapid-fire guessing while the process is up is.
+const LOCKOUT_MAX_ATTEMPTS = 5;
+const LOCKOUT_WINDOW_MS = 5 * 60 * 1000;
+const failedAttempts = new Map();
+function clientIp(req) {
+  return (req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+}
+function logSecurityEvent(msg) {
+  try { fs.appendFileSync(SECURITY_LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`); } catch (e) { /* best-effort */ }
+}
+// Returns a lockout-remaining-seconds if locked out, otherwise null. Never
+// logs or takes the PIN/password itself — only the scope label and IP.
+function checkLockout(scope, key) {
+  const id = `${scope}:${key}`;
+  const entry = failedAttempts.get(id);
+  if (!entry) return null;
+  if (entry.count < LOCKOUT_MAX_ATTEMPTS) return null;
+  const remaining = entry.lockedUntil - Date.now();
+  if (remaining <= 0) { failedAttempts.delete(id); return null; }
+  return Math.ceil(remaining / 1000);
+}
+function recordFailure(scope, key) {
+  const id = `${scope}:${key}`;
+  const entry = failedAttempts.get(id) || { count: 0, lockedUntil: 0 };
+  entry.count += 1;
+  if (entry.count >= LOCKOUT_MAX_ATTEMPTS) {
+    entry.lockedUntil = Date.now() + LOCKOUT_WINDOW_MS;
+    logSecurityEvent(`LOCKOUT scope=${scope} ip=${key} attempts=${entry.count} locked_for_ms=${LOCKOUT_WINDOW_MS}`);
+  }
+  failedAttempts.set(id, entry);
+}
+function clearFailures(scope, key) {
+  failedAttempts.delete(`${scope}:${key}`);
 }
 
 // Fix #4 (AUDIT_REPORT.md findings 2.1/2.2/2.3 / exec summary #4): bill/GRN/
@@ -374,8 +436,37 @@ function newId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 9999)}`;
 }
 
+// SECURITY_HARDENING_COMMAND.md Phase 4B: standard for the one upload-like
+// surface that exists today (GRN attachment, stored inline as a base64
+// dataUrl in data.json — there's no /uploads/ file route or multer yet,
+// that's still planned work per REMAINING_WORK_COMMAND.md). Reuse this
+// same allowlist/size-cap check when the real file-based product-photo
+// and payment-receipt uploads are built.
+const ALLOWED_ATTACHMENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
+const MAX_ATTACHMENT_DATAURL_CHARS = 12 * 1024 * 1024; // ~8.5MB decoded
+function validAttachment(attachment) {
+  if (!attachment || !attachment.dataUrl) return true; // no attachment is fine
+  if (typeof attachment.dataUrl !== 'string' || attachment.dataUrl.length > MAX_ATTACHMENT_DATAURL_CHARS) return false;
+  if (!ALLOWED_ATTACHMENT_TYPES.has(attachment.mediaType)) return false;
+  return true;
+}
+
 const app = express();
+// SECURITY_HARDENING_COMMAND.md Phase 4: standard HTTP security headers.
+// CSP is left off deliberately — this app serves hand-written inline
+// scripts/styles across public/app and public/shop, and a default helmet
+// CSP would break them without a dedicated pass to enumerate what a
+// correct policy needs to allow. The other headers (frameguard, nosniff,
+// HSTS, etc.) are safe additions with no such risk.
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '30mb' }));
+
+// Public-facing endpoints only (storefront order creation, public UI
+// config, login) — the internal POS/admin app hits /api/data/:key
+// constantly all day under a real session and would false-positive
+// against a tight limiter, so it's deliberately not covered here.
+const publicLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+const loginLimiter = rateLimit({ windowMs: 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false });
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
@@ -385,13 +476,18 @@ app.get('/api/health', (req, res) => {
 // PIN-free list of user names the login screen's picker needs (this is
 // the only thing about settings.users that's safe and necessary to show
 // before anyone has signed in — see SESSION_LOG.md for why).
-app.post('/api/login', (req, res) => {
+app.post('/api/login', loginLimiter, (req, res) => {
   const { name, pin } = req.body || {};
   if (!name || !pin) return res.status(400).json({ error: 'bad_request', message: 'Pick a user and enter a PIN.' });
+  const lockKey = `${clientIp(req)}:${name}`;
+  const lockedFor = checkLockout('login', lockKey);
+  if (lockedFor) return res.status(429).json({ error: 'locked_out', message: `Too many failed attempts. Try again in ${lockedFor}s.` });
   const user = (db.settings.users || []).find((u) => u.name === name);
   if (!user || user.pin !== String(pin)) {
+    recordFailure('login', lockKey);
     return res.status(401).json({ error: 'invalid_credentials', message: 'Wrong PIN.' });
   }
+  clearFailures('login', lockKey);
   const token = createSession(user.name, user.role);
   res.json({ ok: true, token, user: user.name, role: user.role });
 });
@@ -448,9 +544,14 @@ app.put('/api/data/:key', (req, res) => {
     return res.status(401).json({ error: 'unauthorized', message: 'Sign in required.' });
   }
   if (key === 'settings' && bankDetailsChanged(db.settings, req.body.value)) {
+    const lockKey = clientIp(req);
+    const lockedFor = checkLockout('pin-bank', lockKey);
+    if (lockedFor) return res.status(429).json({ error: 'locked_out', message: `Too many failed PIN attempts. Try again in ${lockedFor}s.` });
     if (!pinMatchesAnyUser(req.body.pin, db.settings)) {
+      recordFailure('pin-bank', lockKey);
       return res.status(403).json({ error: 'invalid_pin', message: 'A valid PIN is required to change bank details.' });
     }
+    clearFailures('pin-bank', lockKey);
   }
   db[key] = req.body.value;
   saveData();
@@ -481,9 +582,14 @@ app.put('/api/admin/ui-config', (req, res) => {
   if (session.role !== 'admin') return res.status(403).json({ error: 'forbidden', message: 'Admin access required.' });
   const { value, pin } = req.body || {};
   if (!value || typeof value !== 'object') return res.status(400).json({ error: 'bad_request', message: 'Missing value' });
+  const lockKey = clientIp(req);
+  const lockedFor = checkLockout('pin-uiconfig', lockKey);
+  if (lockedFor) return res.status(429).json({ error: 'locked_out', message: `Too many failed PIN attempts. Try again in ${lockedFor}s.` });
   if (!pinMatchesAnyUser(pin, db.settings)) {
+    recordFailure('pin-uiconfig', lockKey);
     return res.status(403).json({ error: 'invalid_pin', message: 'A valid PIN is required to change Site & POS settings.' });
   }
+  clearFailures('pin-uiconfig', lockKey);
   withWriteLock(() => {
     db.uiConfig = value;
     saveData();
@@ -493,7 +599,7 @@ app.put('/api/admin/ui-config', (req, res) => {
 // tagline, announcement banner), same "only what the storefront actually
 // reads" boundary as publicSettingsView/publicProductsView above. pos.*
 // never leaves this endpoint.
-app.get('/api/public/ui-config', (req, res) => {
+app.get('/api/public/ui-config', publicLimiter, (req, res) => {
   res.json({ value: (db.uiConfig && db.uiConfig.storefront) || defaultData().uiConfig.storefront });
 });
 
@@ -503,7 +609,7 @@ app.get('/api/public/ui-config', (req, res) => {
 // re-derived from db.products (the authoritative source), never from the
 // request. If the client sent a different price, it's logged and discarded.
 // This endpoint also reserves the order number atomically (Fix #4).
-app.post('/api/orders', (req, res) => {
+app.post('/api/orders', publicLimiter, (req, res) => {
   withWriteLock(() => {
     const { customerName, phone, address, items, paymentMethod, notes } = req.body || {};
     if (!customerName || !String(customerName).trim()) return res.status(400).json({ error: 'bad_request', message: 'Name is required' });
@@ -542,14 +648,24 @@ app.post('/api/orders', (req, res) => {
 // deduction, and (for credit sales) the customer ledger update all happen
 // inside the same write-locked, synchronous critical section, so two
 // concurrent sales can never collide on the same invoice number or clobber
-// each other's stock/ledger changes. Per-line price is still trusted from
-// the caller here (unlike /api/orders) — staff intentionally override price
-// at the POS (documented in AUDIT_REPORT.md finding 3.4), that's unchanged.
+// each other's stock/ledger changes.
+// Per-line price gating (design-review-critique finding #1, 2026-08-19):
+// only an admin session may submit a price that differs from the product's
+// own sellingPrice — mirrors the client-side gate on cart-price-input
+// (sell.js) and HANDBOOK_EN.md §5's claim that only Admins can change
+// prices. This was previously trusted from any caller regardless of role
+// (a non-admin staff session could submit an arbitrary price via a direct
+// API call, bypassing the UI entirely — confirmed live before this fix).
+// The one legitimate non-admin exception is confirming an existing online
+// order (orderId below): its item prices were already re-derived
+// server-side from db.products when the order was placed (see
+// POST /api/orders), so they're a trusted, system-resolved value, not a
+// staff-typed one, and are used as-is regardless of who confirms the sale.
 app.post('/api/bills', (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
   withWriteLock(() => {
-    const { type, customerId, isCashSale, customerName, items, discountType, discountValue, paymentType, paymentPlanIdx, paymentRef, source } = req.body || {};
+    const { type, customerId, isCashSale, customerName, items, discountType, discountValue, paymentType, paymentPlanIdx, paymentRef, source, orderId } = req.body || {};
     // `by` is the authenticated session's own user, never trusted from the
     // client — otherwise a logged-in staff account could attribute a sale
     // to someone else just by sending a different name in the request body.
@@ -565,6 +681,17 @@ app.post('/api/bills', (req, res) => {
     if (!customer && !isCashSale) return res.status(400).json({ error: 'bad_request', message: 'Select a customer or Cash Sale first' });
     if (!isQuote && paymentType === 'credit' && !customer) return res.status(400).json({ error: 'bad_request', message: 'Select a named customer for credit sales' });
 
+    // Confirming a real, already-placed online order: trust that order's
+    // own recorded item prices (server-resolved at order time), not
+    // whatever the request body's price fields say — closes the same gap
+    // an admin-only gate would otherwise reopen (a non-admin could just
+    // claim source:"website" without a real orderId to bypass it).
+    let sourceOrder = null;
+    if (orderId) {
+      sourceOrder = db.orders.find((o) => o.id === orderId);
+      if (!sourceOrder) return res.status(400).json({ error: 'bad_request', message: 'Unknown order' });
+    }
+
     const resolvedItems = [];
     for (const it of items) {
       const product = db.products.find((p) => p.id === it.productId);
@@ -572,8 +699,17 @@ app.post('/api/bills', (req, res) => {
       const qty = parseInt(it.qty, 10);
       if (!qty || qty <= 0) return res.status(400).json({ error: 'bad_request', message: `Invalid quantity for ${product.name}` });
       if (!isQuote && qty > (product.stock || 0)) return res.status(409).json({ error: 'insufficient_stock', message: `Not enough stock for ${product.name}` });
-      const price = Number(it.price);
-      resolvedItems.push({ productId: product.id, name: product.name, qty, price: (isNaN(price) || price < 0) ? 0 : price, cost: product.costPrice || 0 });
+      let price;
+      if (sourceOrder) {
+        const orderItem = sourceOrder.items.find((oi) => oi.productId === it.productId);
+        price = orderItem ? orderItem.price : product.sellingPrice;
+      } else if (session.role === 'admin') {
+        const requested = Number(it.price);
+        price = (isNaN(requested) || requested < 0) ? 0 : requested;
+      } else {
+        price = product.sellingPrice;
+      }
+      resolvedItems.push({ productId: product.id, name: product.name, qty, price, cost: product.costPrice || 0 });
     }
 
     const subtotal = resolvedItems.reduce((s, it) => s + it.qty * it.price, 0);
@@ -672,6 +808,7 @@ app.post('/api/grns', (req, res) => {
     if (!vendor) return res.status(400).json({ error: 'bad_request', message: 'Unknown vendor' });
     if (!invoiceNumber || !String(invoiceNumber).trim()) return res.status(400).json({ error: 'bad_request', message: 'Invoice number is required' });
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'bad_request', message: 'No items' });
+    if (!validAttachment(attachment)) return res.status(400).json({ error: 'bad_request', message: 'Attachment must be a JPG, PNG, WEBP, or PDF under ~8.5MB.' });
 
     const resolvedItems = [];
     for (const it of items) {
