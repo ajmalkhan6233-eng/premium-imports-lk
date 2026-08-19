@@ -53,6 +53,31 @@ function posFeatureEnabled(name) {
   return !STATE.uiConfig || !STATE.uiConfig.pos || !STATE.uiConfig.pos.features || STATE.uiConfig.pos.features[name] !== false;
 }
 
+// pos-visual-hierarchy: the primary number is state-dependent. Building the
+// cart, Total is what matters; the moment cash is tendered, Change Due (or
+// how much short) becomes the number the cashier actually needs to act on,
+// so it takes over the dominant slot and Total demotes to a small line above
+// it — instead of Total staying visually primary through the whole payment
+// step, which is how wrong change gets given.
+function sellTotalBarPrimaryHtml() {
+  const { discountAmount, total } = computeSellTotals();
+  const tendered = parseFloat(STATE.sellCashTendered);
+  const cashActive = STATE.sellType !== 'quote' && STATE.sellPayment === 'cash';
+  const hasTender = cashActive && STATE.sellCashTendered !== '' && !isNaN(tendered);
+  if (hasTender) {
+    const change = tendered - total;
+    const short = change < 0;
+    return `
+      <span>Total ${money(total)}</span>
+      <strong class="cd-primary${short ? ' short' : ''}">${short ? `${money(-change)} short` : `Change due: ${money(change)}`}</strong>
+    `;
+  }
+  return `
+    ${discountAmount > 0 ? `<span>Total (after -${money(discountAmount)} discount)</span>` : '<span>Total</span>'}
+    <strong>${money(total)}</strong>
+  `;
+}
+
 function computeSellTotals() {
   const subtotal = STATE.sellCart.reduce((s, it) => s + it.qty * it.price, 0);
   const rawDiscount = STATE.sellDiscountType === 'percent'
@@ -201,7 +226,9 @@ function renderSell() {
               <div class="sci">
                 <div class="scn">${escapeHtml(it.name)}</div>
                 <div class="scc">${escapeHtml(prod ? prod.itemCode || '' : '')} · Rs.
-                  <input type="number" min="0" step="0.01" class="cart-price-input" data-priceidx="${idx}" value="${it.price}">
+                  ${isAdmin()
+                    ? `<input type="number" min="0" step="0.01" class="cart-price-input" data-priceidx="${idx}" value="${it.price}">`
+                    : `<span>${it.price}</span>`}
                   each
                 </div>
               </div>
@@ -270,9 +297,8 @@ function renderSell() {
 
   const totalBarHtml = `
     <div class="sell-total-bar">
-      <div class="sell-total-bar-amount">
-        ${discountAmount > 0 ? `<span>Total (after -${money(discountAmount)} discount)</span>` : '<span>Total</span>'}
-        <strong>${money(total)}</strong>
+      <div class="sell-total-bar-amount" id="sellTotalBarAmount">
+        ${sellTotalBarPrimaryHtml()}
       </div>
       <div style="display:flex;gap:8px">
         ${STATE.sellType !== 'quote' ? `<button class="btn secondary" id="sell-hold" ${STATE.sellCart.length === 0 ? 'disabled' : ''}>Hold</button>` : ''}
@@ -301,11 +327,19 @@ function renderSell() {
     const updateChangeDue = () => {
       const tendered = parseFloat(cashInput.value);
       const dueEl = document.getElementById('sell-change-due');
-      if (!dueEl) return;
-      if (isNaN(tendered) || cashInput.value === '') { dueEl.textContent = ''; return; }
-      const change = tendered - total;
-      dueEl.textContent = change >= 0 ? `Change due: ${money(change)}` : `${money(-change)} short`;
-      dueEl.style.color = change >= 0 ? 'var(--ink-soft)' : 'var(--red)';
+      if (dueEl) {
+        if (isNaN(tendered) || cashInput.value === '') { dueEl.textContent = ''; }
+        else {
+          const change = tendered - total;
+          dueEl.textContent = change >= 0 ? `Change due: ${money(change)}` : `${money(-change)} short`;
+          dueEl.style.color = change >= 0 ? 'var(--ink-soft)' : 'var(--red)';
+        }
+      }
+      // Keep the fixed total bar (the actually-dominant, always-visible
+      // element) in sync live, without a full renderSell() — that would
+      // blur this input mid-keystroke.
+      const barAmountEl = document.getElementById('sellTotalBarAmount');
+      if (barAmountEl) barAmountEl.innerHTML = sellTotalBarPrimaryHtml();
     };
     cashInput.oninput = () => { STATE.sellCashTendered = cashInput.value; updateChangeDue(); };
     updateChangeDue();
@@ -555,6 +589,19 @@ async function completeSale() {
   // Only credit sales require a named customer now — everything else
   // defaults to a walk-in cash sale with no customer picked at all.
   if (!isQuote && STATE.sellPayment === 'credit' && !customer) { toast('Select a customer for credit sales'); return; }
+  // error-prevention-design: a discount this size (>20% of the cart) is
+  // cheap to apply by mistake (fat-finger, wrong toggle) and expensive to
+  // let through silently — confirm it at the actual commit point, stating
+  // the real cost, rather than a generic "Are you sure?". Quotations don't
+  // move money or stock, so they're excluded.
+  const { subtotal: sellSubtotal, discountAmount: sellDiscountAmount } = computeSellTotals();
+  if (!isQuote && sellSubtotal > 0 && sellDiscountAmount > 0) {
+    const discountPercent = (sellDiscountAmount / sellSubtotal) * 100;
+    if (discountPercent > 20) {
+      const ok = confirm(`This sale has a ${discountPercent.toFixed(0)}% discount (${money(sellDiscountAmount)} off ${money(sellSubtotal)}). Continue?`);
+      if (!ok) return;
+    }
+  }
   const btn = document.getElementById('sell-complete');
   if (btn) { btn.disabled = true; btn.textContent = isQuote ? 'Generating...' : 'Saving...'; }
   let bill;
@@ -870,13 +917,16 @@ function reviewOrder(orderId) {
     // prices are already the authoritative product price at this point
     // (server-resolved when the order was placed via POST /api/orders,
     // see Fix #3), so no re-pricing is needed here, just atomic billing.
+    // orderId is passed through so the server trusts these prices as-is
+    // (its own record of what was resolved at order time) regardless of
+    // who's confirming — see the price-gating note on POST /api/bills.
     let bill;
     try {
       const res = await fetch('/api/bills', {
         method: 'POST',
         headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
-          type: 'bill', customerId: null, isCashSale: true, customerName: o.customerName,
+          type: 'bill', customerId: null, isCashSale: true, customerName: o.customerName, orderId: o.id,
           items: o.items.map((it) => ({ productId: it.productId, qty: it.qty, price: it.price })),
           discountType: 'fixed', discountValue: 0,
           paymentType: o.paymentMethod === 'cod' ? 'cash' : 'bank',
