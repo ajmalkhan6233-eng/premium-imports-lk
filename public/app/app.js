@@ -482,8 +482,17 @@ function billStatus(b) {
   if (b.status === 'voided') return { label: 'Voided', cls: 'voided' };
   if (b.type === 'quote') return { label: 'Quote', cls: '' };
   if ((b.balanceDue || 0) <= 0) return { label: 'Paid', cls: 'ok' };
-  if ((b.paid || 0) > 0 && (b.balanceDue || 0) > 0) return { label: 'Partial', cls: 'due' };
-  return { label: 'Pending', cls: 'due' };
+  // pos-color-system-status / accounts-receivable-aging: an unpaid credit
+  // sale isn't a problem by itself — only red once it's actually overdue
+  // (past its real dueDate). Still within terms = amber (needs watching,
+  // not a failure). No dueDate recorded at all is its own honest case,
+  // not folded into either — see accounts-receivable-aging's rule against
+  // guessing an age for a balance with no real due date.
+  const overdue = b.dueDate && b.dueDate < todayISO();
+  const partial = (b.paid || 0) > 0 && (b.balanceDue || 0) > 0;
+  if (overdue) return { label: 'Overdue', cls: 'due' };
+  if (partial) return { label: 'Partial', cls: 'warn' };
+  return { label: 'Pending', cls: 'warn' };
 }
 function labelForLedgerType(t) {
   return { bill: 'Bill', memo: 'Credit Memo', payment: 'Payment', grn: 'GRN', loan: 'Loan', void: 'Void' }[t] || t;

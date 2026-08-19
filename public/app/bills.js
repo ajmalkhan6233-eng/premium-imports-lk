@@ -5,7 +5,7 @@
 let billsQuery = '';
 let billsStatusFilter = 'all';
 
-const BILLS_STATUS_OPTIONS = ['all', 'paid', 'pending', 'partial', 'voided', 'quote'];
+const BILLS_STATUS_OPTIONS = ['all', 'paid', 'pending', 'partial', 'overdue', 'voided', 'quote'];
 
 function renderBills() {
   const c = document.getElementById('pageContent');
