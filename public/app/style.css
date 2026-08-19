@@ -295,7 +295,11 @@ h1, h2, h3 { font-weight: 600; margin: 0 0 8px 0; }
 .stat-card:hover { transform: translateY(-2px); }
 .stat-card .label { color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 6px; }
 .stat-card .value { font-size: 1.5rem; font-weight: 600; color: var(--ink); }
-.stat-card.warn .value { color: var(--red); }
+/* pos-color-system-status: dues/loans/low-stock outstanding are
+   needs-attention states, not failures — amber. Reserve red for an
+   actual problem (e.g. negative net profit) via .stat-card.danger. */
+.stat-card.warn .value { color: var(--amber); }
+.stat-card.danger .value { color: var(--red); }
 
 .section-title { display: flex; align-items: center; justify-content: space-between; margin: 22px 0 10px 0; }
 

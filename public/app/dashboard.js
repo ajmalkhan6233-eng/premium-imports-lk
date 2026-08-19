@@ -113,7 +113,10 @@ function initNetProfitCard(from, to, label) {
       if (!res.ok) { el.textContent = '—'; return; }
       el.textContent = money(data.netProfit);
       const card = document.getElementById('stat-netprofit');
-      card.classList.toggle('warn', data.netProfit < 0);
+      // Losing money is a real problem, not just a balance to be aware
+      // of — .danger (red), distinct from dues/loans/low-stock's .warn
+      // (amber) even though both used to share the same class/color.
+      card.classList.toggle('danger', data.netProfit < 0);
       card.onclick = () => showNetProfitBreakdown(label, data);
     } catch (e) { el.textContent = '—'; }
   };
@@ -194,7 +197,7 @@ function showLowStockBreakdown(lowStock) {
   openModal(`
     <h3>Low Stock (≤ ${LOW_STOCK_THRESHOLD})</h3>
     ${lowStock.length === 0 ? '<div class="empty-state">Nothing low on stock.</div>' :
-      lowStock.map((p) => `<div class="list-row"><div><div class="title">${escapeHtml(p.name)}</div><div class="sub">${escapeHtml(p.category)}</div></div><span class="badge due">${p.stock} left</span></div>`).join('')}
+      lowStock.map((p) => `<div class="list-row"><div><div class="title">${escapeHtml(p.name)}</div><div class="sub">${escapeHtml(p.category)}</div></div><span class="badge warn">${p.stock} left</span></div>`).join('')}
     <div class="modal-actions"><button class="btn secondary block" id="closeBreakdown">Close</button></div>
   `);
   document.getElementById('closeBreakdown').onclick = closeModal;
