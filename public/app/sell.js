@@ -211,7 +211,7 @@ function renderSell() {
               ${p.photo ? `<img class="sell-tile-photo" src="${p.photo}">` : `<div class="sell-tile-photo"></div>`}
               <div class="sell-tile-code">${escapeHtml(p.itemCode || '')}</div>
               <div class="sell-tile-name">${escapeHtml(p.name)}</div>
-              <div class="sell-tile-row"><strong>${money(p.sellingPrice)}</strong><span class="badge ${p.stock <= LOW_STOCK_THRESHOLD ? 'due' : ''}">${p.stock} left</span></div>
+              <div class="sell-tile-row"><strong>${money(p.sellingPrice)}</strong><span class="badge ${p.stock <= LOW_STOCK_THRESHOLD ? 'warn' : ''}">${p.stock} left</span></div>
             </div>`).join('')}
         </div>
       </div>
@@ -233,12 +233,12 @@ function renderSell() {
                 </div>
               </div>
               <div class="scq">
-                <button class="btn small secondary" data-qtyminus="${idx}">-</button>
-                <span>${it.qty}</span>
-                <button class="btn small secondary" data-qtyplus="${idx}">+</button>
+                <button class="btn small secondary" data-qtyminus="${idx}" aria-label="Decrease quantity of ${escapeHtml(it.name)}">-</button>
+                <span aria-label="Quantity: ${it.qty}">${it.qty}</span>
+                <button class="btn small secondary" data-qtyplus="${idx}" aria-label="Increase quantity of ${escapeHtml(it.name)}">+</button>
               </div>
               <strong class="sca">${money(it.qty * it.price)}</strong>
-              <button class="btn small secondary" data-remove="${idx}">✕</button>
+              <button class="btn small secondary" data-remove="${idx}" aria-label="Remove ${escapeHtml(it.name)} from cart">✕</button>
             </div>`;
             }).join('')}
         </div>

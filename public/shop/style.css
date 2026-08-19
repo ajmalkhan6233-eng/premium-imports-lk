@@ -36,6 +36,12 @@ h1,h2,h3,.display{ font-family:'Space Grotesk',sans-serif; }
 
 /* Real content sits above the fixed ambient layer (z-index:0). */
 header, .hero, .skyline, main, footer{ position:relative; z-index:1; }
+/* retail-cosmic-brand-identity: the particle drift is a hero-only brand
+   moment, not a constant page-wide background — confined to the hero's
+   own box (clipped by .hero's overflow:hidden) instead of the full
+   viewport, so it doesn't run behind the catalog/cart/checkout while
+   someone's actually shopping. */
+.hero .ambient-bg{ position:absolute; z-index:0; }
 
 header{
   display:flex; align-items:center; justify-content:space-between;
