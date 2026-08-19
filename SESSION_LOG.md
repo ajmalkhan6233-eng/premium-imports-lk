@@ -2509,3 +2509,127 @@ carried into the handbook itself. Verified live: `curl
 localhost:3005/docs/HANDBOOK_EN.md` shows the new §18 content being
 served, not the stale placeholder. `node --check` clean on
 `onboarding.js`, `app.js`, `settings.js`.
+
+**Offline-first sync — first increment built and self-tested
+end-to-end, real server data at every step.** Scoped deliberately to
+the Sell screen's `completeSale()` only, not the whole app — see the
+git commit message for the full design writeup; summary here:
+
+- **`public/app/sw.js`** — a service worker caching only the static app
+  shell (22 files: `index.html`, `style.css`, every `public/app/*.js`,
+  `/lib/*.js`). Deliberately never touches anything under `/api/`,
+  `/shop`, or `/docs/` — caching a stale product price or stock count
+  for a money system would be actively dangerous, so API calls always
+  hit the network for real, live data.
+- **`public/app/offline.js`** — an IndexedDB outbox. A queued sale gets
+  a client-generated UUID (`clientRequestId`) the moment it's captured,
+  before any network attempt. `obxFlush()` runs on the browser's
+  `online` event and on app boot, POSTing each queued sale; a real
+  server rejection (not a network failure) marks it `'failed'` with the
+  server's own message and stops auto-retrying it, but never removes it
+  — a small badge (topnav, next to "Signed in as") shows "N pending
+  sync" or, in red, "N needs attention," clickable to a queue modal
+  with per-item Retry/Discard (Discard requires an explicit confirm
+  stating this is a real, permanent, non-recoverable loss of an unsynced
+  sale).
+- **`server.js` `POST /api/bills`** — now accepts `clientRequestId`;
+  if a bill with that id already exists, returns the existing bill
+  instead of creating another one, before any of the stock-deduction/
+  discount/ledger logic runs. This is what makes a retry — a flaky
+  reconnect firing the same flush twice, or an accidental double-tap on
+  Complete Sale — safe rather than a double-bill/double-deduct. Every
+  sale (queued or not) now generates this id client-side in `sell.js`,
+  so the protection covers the normal online path too, not just the
+  offline one.
+- **`sell.js` `completeSale()`** — checks `navigator.onLine` up front
+  (skips a doomed network round-trip and queues immediately rather than
+  waiting out a timeout) and also queues on an actual fetch failure
+  (WiFi dropping mid-request). Shows a distinct "Saved offline" modal
+  with a temporary `PENDING-xxxxxxxx` reference — never a fake invoice
+  number, since a real one doesn't exist until sync — and optimistically
+  decrements the local stock view so the same device doesn't oversell
+  the same item again before reconnecting (the server re-checks real
+  stock for real at sync time regardless).
+
+**Self-tested live**, PM2 restarted to pick up the server.js change
+(clean, restart count reset, `/api/health` 200 throughout). Set up one
+throwaway product with real stock via a real GRN against a throwaway
+vendor (same backup-first, clean-up-after discipline as every other
+test this session; `data.json` backed up to
+`backups/data-before-offline-sync-test-*.json` first). Used
+`Object.defineProperty(navigator, 'onLine', {value: false})` in the
+live page to simulate offline (this is a legitimate test technique for
+exercising the app's own online/offline branch — it does not fake or
+bypass any server response; `fetch` itself was never touched for the
+core test):
+1. Added the item to cart, tapped Complete Sale while "offline" —
+   "Saved offline" modal appeared with the correct item count/total and
+   a `PENDING-f687ca17` reference; topnav badge showed "1 pending
+   sync"; product tile updated 10 → 9 left locally. Confirmed via the
+   API directly (not trusting the UI) that **zero** bills existed
+   server-side and real stock was still 10 — nothing had actually been
+   sent yet, exactly as it should be while offline.
+2. Restored `navigator.onLine = true` and dispatched a real `online`
+   event (the same one a real reconnect fires) — badge cleared. Fresh
+   `GET /api/data/bills` confirmed **exactly one** real bill
+   (`INV-0003`) now existed, with the `clientRequestId` preserved, and
+   `GET /api/data/products` confirmed real stock was now genuinely 9.
+3. **Idempotency, tested directly, not assumed**: replayed the exact
+   same `clientRequestId` via a raw API call. Server returned the
+   *same* `INV-0003` (status 200, not a new bill). Bill count stayed at
+   1, stock stayed at 9 — confirmed no duplicate, no double-deduction.
+4. **"Needs attention" path, tested directly**: queued a sale for 999
+   units of a product that only had 9 real units left, called
+   `obxFlush()`. The record was marked `status: 'failed'` with
+   `lastError: "Not enough stock for ZTEST OFFLINE ITEM"` — still
+   present in the outbox, not deleted. Badge showed "1 needs attention"
+   in red; the queue modal showed the item with the real error message
+   and working Retry/Discard buttons (screenshot taken). Cleaned up via
+   `obxRemove()` directly rather than clicking the native-`confirm()`-
+   backed Discard button, per this session's standing rule against
+   triggering blocking browser dialogs through automation.
+5. **Service worker, verified registered and populated**, not just
+   assumed from the code: `navigator.serviceWorker.getRegistrations()`
+   showed one active registration at scope `/`; `caches.keys()` /
+   `cache.keys()` showed all 22 shell assets actually cached.
+
+**Cleaned up afterward**: voided the test GRN, removed the test
+product/vendor/bill via the same `PUT /api/data/:key` pattern used all
+session. Final state confirmed by direct read: 11 real products (all
+still genuinely `stock: 0`, byte-for-byte the same as at the start of
+this whole task — the out-of-scope instruction on inventory data was
+respected throughout), 0 vendors, 1 real bill (the shop's actual
+`INV-0001`), 4 GRNs (1 real + 3 voided test artifacts accumulated
+across this session's testing, each clearly reason-tagged, left in
+place per the app's own non-destructive void philosophy rather than
+force-deleted).
+
+**Explicitly NOT covered by this first increment — documented, not
+silently overclaimed:**
+- Only the Sell screen (bill/memo/credit-memo creation) captures
+  offline. GRN and every other screen still require a live connection.
+- A **fully cold app reopen while offline** does not work yet —
+  `boot()`'s first action is `GET /api/data/settings`, which has no
+  offline fallback, so a closed-and-reopened tab with zero network
+  gets stuck at the login screen with a "could not reach server" toast,
+  even though the service worker successfully serves the cached shell
+  underneath it. What *is* covered: the realistic retail case of
+  already being signed in and mid-shift when WiFi drops. Closing this
+  gap fully would mean caching `STATE.settings`/`products`/etc.
+  themselves (not just the static shell) and giving `boot()` an
+  offline fallback path — flagged as real follow-up work, not attempted
+  here under this pass's time/scope.
+- **Conflict resolution is dedupe-only, not merge.** Two different
+  devices offline-selling the last unit of the same product
+  independently is handled safely (the second one to sync gets a real
+  stock-check failure and surfaces as "needs attention" for a human to
+  resolve) but not automatically reconciled — there's no true
+  multi-device merge logic here, just "never silently double-book."
+- Handbook (§20, both languages, `public/app/docs/` synced) and the
+  in-app Help screen's "Coming soon" list both updated to reflect this
+  accurately — what's done, what's Sell-only, what's still ahead —
+  rather than marking offline sync fully "done" in a way that overstates
+  it.
+
+`node --check` clean on `server.js`, `sell.js`, `offline.js`, `sw.js`,
+`app.js`, `help.js`.
