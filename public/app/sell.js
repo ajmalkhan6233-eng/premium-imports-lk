@@ -280,7 +280,7 @@ function renderSell() {
                 </select>
               </div>
               ${customer && customer.creditLimit && (customer.dues || 0) + total > customer.creditLimit ? `
-                <p class="sub" style="color:var(--red)">⚠ This sale puts ${escapeHtml(customer.name)} at ${money((customer.dues || 0) + total)}, over their ${money(customer.creditLimit)} credit limit. You can still complete the sale.</p>
+                <p class="sub" style="color:var(--amber)">⚠ This sale puts ${escapeHtml(customer.name)} at ${money((customer.dues || 0) + total)}, over their ${money(customer.creditLimit)} credit limit. You can still complete the sale.</p>
               ` : ''}
             ` : ''}
           `}
