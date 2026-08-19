@@ -139,7 +139,7 @@ const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-re
 function renderFilters() {
   const cats = ['All', ...(SHOP.settings.categories || [])];
   document.getElementById('catFilters').innerHTML = cats.map((c) =>
-    `<div data-cat="${escapeHtml(c)}" class="cat${c === SHOP.categoryFilter ? ' active' : ''}">${escapeHtml(c)}</div>`
+    `<button type="button" data-cat="${escapeHtml(c)}" class="cat${c === SHOP.categoryFilter ? ' active' : ''}" aria-pressed="${c === SHOP.categoryFilter}">${escapeHtml(c)}</button>`
   ).join('');
   document.querySelectorAll('#catFilters .cat').forEach((b) => {
     b.onclick = () => {
@@ -205,7 +205,7 @@ function renderGrid() {
     if (!inStock) {
       actionHtml = `<div class="price">${hasPrice ? money(p.sellingPrice) : 'Ask for Price'}</div><a class="ask-btn" href="https://wa.me/${waNumber}?text=${waText}" target="_blank">Notify Me</a>`;
     } else if (hasPrice) {
-      actionHtml = `<div class="price">${money(p.sellingPrice)}</div><button class="add" data-add="${p.id}">+</button>`;
+      actionHtml = `<div class="price">${money(p.sellingPrice)}</div><button class="add" data-add="${p.id}" aria-label="Add ${escapeHtml(p.name)} to cart">+</button>`;
     } else {
       actionHtml = `<div class="price">Ask for Price</div><a class="ask-btn" href="https://wa.me/${waNumber}?text=${waText}" target="_blank">Ask</a>`;
     }
@@ -271,9 +271,9 @@ function renderCartDrawer() {
             <div class="cart-item">
               <div><div>${escapeHtml(it.name)}</div><div style="color:var(--muted);font-size:0.85rem">${money(it.price)} each</div></div>
               <div class="qty-controls">
-                <button data-minus="${idx}">-</button>
-                <span>${it.qty}</span>
-                <button data-plus="${idx}">+</button>
+                <button data-minus="${idx}" aria-label="Decrease quantity of ${escapeHtml(it.name)}">-</button>
+                <span aria-label="Quantity: ${it.qty}">${it.qty}</span>
+                <button data-plus="${idx}" aria-label="Increase quantity of ${escapeHtml(it.name)}">+</button>
               </div>
             </div>
           `).join('')}
@@ -337,17 +337,17 @@ function openCheckoutForm() {
     <div class="cart-drawer" id="checkoutBackdrop">
       <div class="cart-panel">
         <h2>Checkout</h2>
-        <div class="field"><label>Name</label><input id="co-name"></div>
-        <div class="field"><label>Phone</label><input id="co-phone"></div>
-        <div class="field"><label>Address</label><textarea id="co-address" rows="3"></textarea></div>
-        <div class="toggle-group">
-          <button data-pay="cod" class="active">Cash on Delivery</button>
-          <button data-pay="bank">Bank Transfer</button>
+        <div class="field"><label for="co-name">Name</label><input id="co-name"></div>
+        <div class="field"><label for="co-phone">Phone</label><input id="co-phone" type="tel" autocomplete="tel"></div>
+        <div class="field"><label for="co-address">Address</label><textarea id="co-address" rows="3"></textarea></div>
+        <div class="toggle-group" role="group" aria-label="Payment method">
+          <button data-pay="cod" class="active" aria-pressed="true">Cash on Delivery</button>
+          <button data-pay="bank" aria-pressed="false">Bank Transfer</button>
         </div>
         <div id="bankArea" class="hidden">
           <div class="qr-box"><div id="qrTarget"></div><div style="margin-top:8px;font-size:0.85rem;white-space:pre-line">${escapeHtml(bankDetailsText())}</div></div>
         </div>
-        <div class="field"><label>Notes (optional)</label><textarea id="co-notes" rows="2"></textarea></div>
+        <div class="field"><label for="co-notes">Notes (optional)</label><textarea id="co-notes" rows="2"></textarea></div>
         <div class="cart-total"><span>Total</span><span>${money(total)}</span></div>
         <button class="btn block" id="placeOrderBtn">Place Order</button>
         <button class="btn secondary block" style="margin-top:10px" id="backToCartBtn">Back to Cart</button>
@@ -360,8 +360,9 @@ function openCheckoutForm() {
   });
   document.querySelectorAll('.toggle-group button[data-pay]').forEach((b) => {
     b.onclick = () => {
-      document.querySelectorAll('.toggle-group button[data-pay]').forEach((x) => x.classList.remove('active'));
+      document.querySelectorAll('.toggle-group button[data-pay]').forEach((x) => { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
       b.classList.add('active');
+      b.setAttribute('aria-pressed', 'true');
       paymentMethod = b.dataset.pay;
       const bankArea = document.getElementById('bankArea');
       if (paymentMethod === 'bank') { bankArea.classList.remove('hidden'); renderQr('qrTarget'); }
