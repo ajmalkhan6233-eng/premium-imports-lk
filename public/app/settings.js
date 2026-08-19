@@ -13,6 +13,12 @@ function renderSettings() {
     </div>
 
     <div class="card" style="margin-top:10px">
+      <h3>\u{1F4CB} Shop Setup Wizard</h3>
+      <p class="sub" style="margin-top:-6px">A short set of questions about how your shop operates — turns real answers into the settings below, instead of hunting through each field one at a time. Nothing changes until you review and confirm.</p>
+      <button class="btn small secondary" id="st-run-wizard">Run Setup Wizard</button>
+    </div>
+
+    <div class="card" style="margin-top:10px">
       <h3>Shop</h3>
       <div class="field"><label>Shop Name</label><input id="st-shopname" value="${escapeHtml(s.shopName || '')}"></div>
       <div class="field"><label>WhatsApp Number</label><input id="st-whatsapp" value="${escapeHtml(s.whatsappNumber || '')}"></div>
@@ -162,6 +168,7 @@ function renderSettings() {
       c.querySelectorAll('#st-theme-group button').forEach((b) => b.classList.toggle('active', b === btn));
     };
   });
+  document.getElementById('st-run-wizard').onclick = () => { obStep = -1; goTab('onboarding'); };
   const backupBtn = document.getElementById('st-download-backup');
   if (backupBtn) backupBtn.onclick = async () => {
     backupBtn.disabled = true; backupBtn.textContent = 'Preparing...';

@@ -59,11 +59,14 @@ const NAV_ITEMS = [
   { id: 'reports', label: 'Reports', icon: '\u{1F4CA}' },
   { id: 'settings', label: 'Settings', icon: '\u{2699}\u{FE0F}' },
   { id: 'siteEditor', label: 'Site & POS Editor', icon: '\u{1F5A5}\u{FE0F}' },
-  { id: 'help', label: 'Help', icon: '\u{2753}' }
+  { id: 'help', label: 'Help', icon: '\u{2753}' },
+  // Deliberately not in MOBILE_PRIMARY/MOBILE_MORE — reached via a button
+  // inside Settings, not a permanent nav tab (one-time/rare setup flow).
+  { id: 'onboarding', label: 'Setup Wizard', icon: '\u{1F4CB}' }
 ];
 const MOBILE_PRIMARY = ['sell', 'home', 'products', 'customers'];
 const MOBILE_MORE = ['grn', 'bills', 'vendors', 'loans', 'expenses', 'messages', 'reports', 'settings', 'siteEditor', 'help'];
-const ADMIN_ONLY_TABS = ['reports', 'settings', 'siteEditor'];
+const ADMIN_ONLY_TABS = ['reports', 'settings', 'siteEditor', 'onboarding'];
 
 /* ---------------- Auth token (AUTH_COMMAND.md Step 2) ---------------- */
 // Every /api/data/:key and staff-workflow write now requires this on the
@@ -435,7 +438,7 @@ function goTab(tab) {
     home: renderHome, products: renderProducts, sell: renderSell, grn: renderGRN, bills: renderBills,
     customers: renderCustomers, vendors: renderVendors, loans: renderLoans, expenses: renderExpenses,
     messages: renderMessages, reports: renderReports, settings: renderSettings, siteEditor: renderSiteEditor,
-    help: renderHelp
+    help: renderHelp, onboarding: renderOnboardingWizard
   };
   renderers[tab]();
   renderLivePulse();
