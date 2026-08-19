@@ -2698,3 +2698,19 @@ re-verified with a real PIN-gated save). No code change needed for this
 item — reported the finding, confirmed nothing further to fix.
 
 `node --check` clean on `app.js`.
+
+## 2026-08-19 (continued) — 22 new skills: financial-integrity + scoped brand + 2 design
+
+**Skill used**: `example-skills:skill-creator`. Same precedent as the earlier 14-skill session — full specs provided in one message, batch size and the redesign task immediately queued behind this one both argued against the full interview/eval-viewer/benchmark loop, so drafted directly. Flagging as a deliberate scope decision again, not an oversight.
+
+Created (`.claude/skills/<name>/SKILL.md`, 22 total — corrected from "23" stated when kicking this off, which was my own miscount, not what Ajmal actually listed):
+
+**19 accounting/financial-integrity skills**, each grounded in this app's *actual* schema rather than generic finance boilerplate — several explicitly name real gaps this system has today rather than pretending otherwise: `payroll-calculation` and `fixed-asset-depreciation-tracking` both state plainly that no real data exists yet for either (no time-clock, no asset register) and treat that as a hard stop, not something to approximate. `tax-filing-preparation` reconfirms the deliberate no-VAT decision already logged once. `accounts-payable-aging` names that vendor payables have no due-date field, so it can only report "age since received," never true overdue aging, unlike its AR counterpart. `financial-audit-trail` uses the known, already-logged client-side `by` gap on customer/vendor/loan payments as its canonical test case. `cost-of-goods-sold-tracking` distinguishes `bill.items[].cost` (real historical cost, correct for past P&L) from current `product.costPrice` (correct only for forward-looking margin) — using the wrong one is a real, specific way this rule gets broken quietly. All 19 thread the 100.1g "never invent/estimate" rule through their own specific domain rather than repeating it as boilerplate.
+
+**1 scoped brand-identity skill**: `retail-cosmic-brand-identity` — the Scope section (applies-to / explicitly-out-of-scope lists, named screens) is written as load-bearing as the aesthetic description itself, per Ajmal's explicit framing. Out-of-scope list names Sell and every admin data-entry screen individually rather than a vague "other screens."
+
+**2 more design skills**: `dashboard-data-density-balance` (Home/Reports), `print-friendly-report-layout` (Bills/Reports/GRN print+PDF paths).
+
+All 22 cross-reference the existing 14 project skills plus each other via `[[skill-name]]` links, same convention as before. No code touched this leg — pure skill authoring, nothing to smoke-test.
+
+**Pivoting immediately to the full storefront+admin redesign Ajmal sent mid-turn** — see the next entries for that work, which explicitly depends on `retail-cosmic-brand-identity` and the accounting-adjacent design skills existing, which is why this had to land first.
