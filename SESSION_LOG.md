@@ -2633,3 +2633,68 @@ silently overclaimed:**
 
 `node --check` clean on `server.js`, `sell.js`, `offline.js`, `sw.js`,
 `app.js`, `help.js`.
+
+## 2026-08-19 (continued) — Push, stray-process incident explained, wizard label, bank-details protection re-confirmed
+
+**Pushed to GitHub — done.** `git push origin main` succeeded on the
+first attempt (credentials already configured on this machine from
+prior use, nothing set up by me): `44c92ba..22b25c4 main -> main`.
+Confirmed `git rev-parse origin/main` and `HEAD` are identical
+(`22b25c4`) after a fresh `git fetch`. All 16 commits from this pass
+are now backed up on the remote, not just local.
+
+**Stray-process incident — full explanation given, corrected the
+earlier ambiguous one-line summary.** Ajmal's report-back summary
+earlier ("confirmed my server-side price fix wasn't actually being
+served due to a stray process") read as if this might have been a
+second, separate occurrence discovered fresh in *this* session, when
+it was actually the same single incident already fully described in
+the price-gate entry above — found and fixed within that same turn,
+before the four re-verification tests were run. Gave Ajmal the full,
+unsoftened timeline directly in chat: the stray process (`PID 10424`)
+had `StartTime 5:15:14 PM`, predating the price-gate code edit; it was
+killed at `6:27:47 PM` (logged via `Get-Date` immediately before the
+`Stop-Process` call). Stated plainly, not softened: for that ~72-minute
+window, any request that actually hit port 3005 would have been served
+by the pre-fix code, since a running Node process doesn't hot-reload a
+file change — and there is no request-level log for that window (the
+stray process wasn't PM2-managed, so nothing captured its stdout, and
+`server.js` has no access-log middleware). The only evidence available
+either way is `db.bills`, checked at multiple points across the whole
+engagement, which never showed an unexplained real bill — evidence of
+absence, explicitly *not* proof of absence, said as much rather than
+implying certainty. Confirmed: same root cause as the boot-order fix
+(the Startup-shortcut-launches-raw-node mechanism, already documented
+2026-08-14/2026-08-16) — this incident is what led to finding and
+reporting that root cause, not a recurrence after it was already fixed.
+What actually closes it: the Startup shortcut now runs PM2 (already
+fixed and verified two entries above) — with the honest caveat that
+this closes *that specific mechanism*, not every conceivable way a
+human could start a raw `node server.js` by hand.
+
+**Wizard label — reported, then fixed one real gap.** Audited every
+user-visible string touching the onboarding flow (`app.js`,
+`settings.js`, `onboarding.js`, `help.js`, both handbooks). None used
+language implying business-type classification. The one inconsistency:
+the bare nav-item/page-title label said "Setup Wizard" (missing "Shop")
+while every other reference already said "Shop Setup Wizard" — changed
+`app.js`'s `NAV_ITEMS` entry to `"Shop Setup"` for consistency, per
+Ajmal's suggested wording. Verified live: nav bar now reads "Shop
+Setu[p]" (visually confirmed via screenshot after reload), Settings
+card and welcome screen unchanged (already said "Shop Setup Wizard").
+
+**Bank-details protection in the wizard — re-confirmed from a fresh
+read, not memory.** `onboarding.js`'s `obApplySettings()` writes
+through `fetch('/api/data/settings', {method:'PUT', ...})` — the
+identical generic endpoint `settings.js`'s own standalone Bank Details
+card uses via `saveKey('settings')`. Server-side (`server.js:546-555`),
+`bankDetailsChanged()` + `pinMatchesAnyUser()` gate *every* write to
+the `settings` key on that one shared code path, regardless of which
+screen initiated it — there is no separate or weaker wizard-specific
+gate to audit, because there is no separate wizard-specific write path
+at all. This was already live-tested earlier this session (the bug
+where the wizard didn't originally collect a PIN, found and fixed, then
+re-verified with a real PIN-gated save). No code change needed for this
+item — reported the finding, confirmed nothing further to fix.
+
+`node --check` clean on `app.js`.
