@@ -261,6 +261,7 @@ async function boot() {
   }
   await fetchUiConfig();
   showApp();
+  obxInit();
 }
 
 function findUser(name) {
@@ -432,6 +433,7 @@ function goTab(tab) {
   });
   document.getElementById('pageTitle').textContent = NAV_ITEMS.find((n) => n.id === tab).label;
   renderOnlineOrdersBadge();
+  if (typeof obxRenderBadge === 'function') obxRenderBadge();
   if (tab === 'sell') sellNeedsCustomerFocus = true;
   if (tab !== 'sell') document.getElementById('sellTotalBarRoot').innerHTML = '';
   const renderers = {

@@ -665,7 +665,19 @@ app.post('/api/bills', (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
   withWriteLock(() => {
-    const { type, customerId, isCashSale, customerName, items, discountType, discountValue, paymentType, paymentPlanIdx, paymentRef, source, orderId } = req.body || {};
+    const { type, customerId, isCashSale, customerName, items, discountType, discountValue, paymentType, paymentPlanIdx, paymentRef, source, orderId, clientRequestId } = req.body || {};
+    // Offline-first sync (SESSION_LOG.md 2026-08-19): a sale captured
+    // offline gets a client-generated id before it's ever sent, and the
+    // outbox (offline.js) retries the same request until a sync
+    // succeeds. Without this check a retry — or an accidental
+    // double-tap on Complete Sale — would create a second real bill,
+    // double-deduct stock, and double-charge a credit customer. If a
+    // bill with this id already exists, hand back that same bill
+    // instead of creating another one; nothing below runs twice.
+    if (clientRequestId) {
+      const existing = db.bills.find((b) => b.clientRequestId === clientRequestId);
+      if (existing) return res.json({ ok: true, bill: existing });
+    }
     // `by` is the authenticated session's own user, never trusted from the
     // client — otherwise a logged-in staff account could attribute a sale
     // to someone else just by sending a different name in the request body.
@@ -732,7 +744,8 @@ app.post('/api/bills', (req, res) => {
       paid: isQuote ? 0 : (paymentType === 'credit' ? 0 : total),
       balanceDue: isQuote ? 0 : (paymentType === 'credit' ? total : 0),
       paymentPlan: plan ? plan.name : null, dueDate,
-      by: by || null, source: source || 'in-store'
+      by: by || null, source: source || 'in-store',
+      clientRequestId: clientRequestId || null
     };
     db.bills.push(bill);
     if (!isQuote) {

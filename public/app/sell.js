@@ -604,27 +604,46 @@ async function completeSale() {
   }
   const btn = document.getElementById('sell-complete');
   if (btn) { btn.disabled = true; btn.textContent = isQuote ? 'Generating...' : 'Saving...'; }
+  const salePayload = {
+    // Generated once, up front, whether this ends up going straight to
+    // the server or into the offline queue — lets the server dedupe a
+    // retried/re-flushed request (or an accidental double-tap) instead
+    // of ever creating two bills for the same sale. See offline.js.
+    clientRequestId: (crypto.randomUUID ? crypto.randomUUID() : `sale-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    type: STATE.sellType,
+    customerId: customer ? customer.id : null,
+    isCashSale,
+    items: STATE.sellCart.map((it) => ({ productId: it.productId, qty: it.qty, price: it.price })),
+    discountType: STATE.sellDiscountType, discountValue: STATE.sellDiscountValue || 0,
+    paymentType: isQuote ? null : STATE.sellPayment,
+    paymentRef: isQuote ? null : STATE.sellPaymentRef,
+    paymentPlanIdx: STATE.sellPaymentPlanIdx,
+    by: STATE.user, source: 'in-store'
+  };
+  // Offline-first (Sell screen only, first increment — see offline.js):
+  // known offline up front, skip the doomed network round-trip and queue
+  // immediately instead of waiting out a timeout. Quotations aren't
+  // queued — no money/stock commitment, just retry once back online.
+  if (!isQuote && !navigator.onLine) {
+    await sellQueueOffline(salePayload);
+    if (btn) { btn.disabled = false; btn.textContent = 'Complete Sale'; }
+    return;
+  }
   let bill;
   try {
     const res = await fetch('/api/bills', {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({
-        type: STATE.sellType,
-        customerId: customer ? customer.id : null,
-        isCashSale,
-        items: STATE.sellCart.map((it) => ({ productId: it.productId, qty: it.qty, price: it.price })),
-        discountType: STATE.sellDiscountType, discountValue: STATE.sellDiscountValue || 0,
-        paymentType: isQuote ? null : STATE.sellPayment,
-        paymentRef: isQuote ? null : STATE.sellPaymentRef,
-        paymentPlanIdx: STATE.sellPaymentPlanIdx,
-        by: STATE.user, source: 'in-store'
-      })
+      body: JSON.stringify(salePayload)
     });
     const data = await res.json();
     if (!res.ok) { toast(data.message || 'Could not complete sale'); return; }
     bill = data.bill;
   } catch (e) {
+    // Network actually failed mid-request (not just "we knew offline
+    // already" above) — e.g. WiFi dropped between tapping Complete Sale
+    // and the request landing. Same queue path, not a plain error toast.
+    if (!isQuote) { await sellQueueOffline(salePayload); return; }
     toast('Could not reach the server to complete the sale.');
     return;
   } finally {
@@ -645,6 +664,39 @@ async function completeSale() {
   showReceipt(bill);
   renderSell();
   renderLivePulse();
+}
+// Offline capture: queues the sale (obxQueueSale, offline.js) instead of
+// completing it — there is no real bill/invoice number yet, so this must
+// never look like a normal completed sale. Optimistically decrements the
+// local stock view so the same items don't get oversold again by this
+// same device before it's back online (the server re-checks stock for
+// real once the queued sale actually syncs).
+async function sellQueueOffline(payload) {
+  const rec = await obxQueueSale(payload);
+  payload.items.forEach((it) => {
+    const p = STATE.products.find((x) => x.id === it.productId);
+    if (p) p.stock = Math.max(0, (p.stock || 0) - it.qty);
+  });
+  const total = payload.items.reduce((s, it) => s + it.qty * it.price, 0);
+  STATE.sellCart = [];
+  STATE.sellCustomerId = null;
+  sellCustomerQuery = '';
+  sellNeedsItemFocus = true;
+  STATE.sellDiscountValue = 0;
+  STATE.sellPaymentPlanIdx = 0;
+  STATE.sellPaymentRef = '';
+  STATE.sellCashTendered = '';
+  renderSell();
+  openModal(`
+    <h3>\u{1F4F5} Saved offline</h3>
+    <p class="sub">No connection right now — this sale is saved on this device
+    (${payload.items.length} item(s), ${money(total)}) and will sync automatically
+    once you're back online. It does not have a real bill number yet —
+    that's assigned when it syncs.</p>
+    <p class="sub">Reference: PENDING-${escapeHtml(rec.clientRequestId.slice(0, 8))}</p>
+    <button class="btn block" id="ob-offline-close">OK</button>
+  `);
+  document.getElementById('ob-offline-close').onclick = closeModal;
 }
 function typeLabel(bill) {
   return bill.type === 'memo' ? 'Credit Memo' : bill.type === 'quote' ? 'Quotation' : 'Invoice';
