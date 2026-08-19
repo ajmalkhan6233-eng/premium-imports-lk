@@ -32,7 +32,7 @@ function renderCustomerListHtml() {
     <div class="list-row" data-id="${cu.id}">
       <div><div class="title">${escapeHtml(cu.name)}</div><div class="sub">${escapeHtml(cu.phone || '')}${overdue ? ' · ⚠ overdue since ' + fmtDate(nextDue) : ''}</div></div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="badge ${cu.dues > 0 ? 'due' : 'ok'}">${cu.dues > 0 ? money(cu.dues) + ' due' : 'Settled'}</span>
+        <span class="badge ${cu.dues > 0 ? (overdue ? 'due' : 'warn') : 'ok'}">${cu.dues > 0 ? money(cu.dues) + ' due' : 'Settled'}</span>
         ${isAdmin() ? `<button class="btn small secondary" data-edit-customer="${cu.id}">Edit</button>
         <button class="btn small danger" data-delete-customer="${cu.id}">Delete</button>` : ''}
       </div>
