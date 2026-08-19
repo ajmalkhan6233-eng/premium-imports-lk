@@ -38,7 +38,7 @@ function renderLenderListHtml() {
     <div class="list-row ${l.id === selectedLenderId ? 'active' : ''}" data-id="${l.id}">
       <div><div class="title">${escapeHtml(l.name)}</div><div class="sub">Given ${money(l.given)} · Repaid ${money(l.repaid)}</div></div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="badge ${l.balance > 0 ? 'due' : 'ok'}">${money(l.balance)}</span>
+        <span class="badge ${l.balance > 0 ? 'warn' : 'ok'}">${money(l.balance)}</span>
         ${isAdmin() ? `<button class="btn small secondary" data-edit-lender="${l.id}">Edit</button>
         <button class="btn small danger" data-delete-lender="${l.id}">Delete</button>` : ''}
       </div>
