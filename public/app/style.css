@@ -457,6 +457,25 @@ tbody tr:hover { background: var(--cream-2); }
 .sell-cart-row .scc { font-size: 0.78rem; color: var(--ink-soft); display: flex; align-items: center; gap: 4px; font-family: var(--mono); }
 .sell-cart-row .scc input.cart-price-input { width: 66px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; font-family: var(--mono); }
 .sell-cart-row .scq { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.sell-cart-row .scq input.cart-qty-input { width: 42px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px; text-align: center; font-family: var(--mono); }
+
+/* Fast Intake panel — the fast front door into real GRN data from the Sell
+   screen itself, no navigation away. */
+.fast-intake-panel { margin-bottom: 14px; border-color: var(--accent); }
+.fast-intake-panel .row { display: flex; gap: 10px; }
+.fast-intake-panel .row .field { flex: 1; }
+
+/* Frequently Sold strip — one-tap add for whatever's actually selling,
+   computed live from real bill history, not curated by hand. */
+.freq-sold-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 10px; -webkit-overflow-scrolling: touch; }
+.freq-sold-tile {
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--white);
+  cursor: pointer; min-width: 96px; text-align: left;
+}
+.freq-sold-tile:hover { border-color: var(--accent); }
+.freq-sold-tile .ft-name { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.freq-sold-tile .ft-price { font-size: 0.78rem; color: var(--ink-soft); font-family: var(--mono); }
 .sell-cart-row .sca { min-width: 82px; text-align: right; font-size: 0.95rem; flex-shrink: 0; }
 .sell-cart-footer { margin-top: 10px; }
 .sell-total-spacer { height: 76px; }

@@ -53,6 +53,277 @@ function posFeatureEnabled(name) {
   return !STATE.uiConfig || !STATE.uiConfig.pos || !STATE.uiConfig.pos.features || STATE.uiConfig.pos.features[name] !== false;
 }
 
+/* ---------------- Fast Intake ----------------
+   FAST_INTAKE_COMMAND.md: the shop's real sourcing model — items are found
+   one at a time via a WhatsApp supplier group (a photo shows the item,
+   quantity, and real cost price), then a customer is matched to it. This
+   panel is the fast front door for that into the same GRN/inventory/ledger
+   system the full multi-item GRN screen writes through (see server.js
+   POST /api/grns, source:'fast-intake') — not a parallel shadow system, so
+   Reports/COGS see it identically either way. The full GRN screen itself is
+   untouched, still there for actual bulk shipment receiving. */
+let fastIntakeOpen = false;
+function blankFastIntakeDraft() {
+  return { productId: null, name: '', cost: '', sellingPrice: '', sellingPriceTouched: false, qty: 1, category: STATE.settings.categories[0] || 'Other', vendorName: '', query: '' };
+}
+let fastIntakeDraft = null;
+
+// Cheap edit-distance check so a near-duplicate typed name ("Choclate 100g"
+// vs "Chocolate 100g") gets caught before it silently becomes a second,
+// separate product — per the explicit instruction to confirm before
+// merging rather than assume. Deliberately simple (no library): small
+// inventories, short product names, this is plenty.
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+function normalizeProductName(s) {
+  return String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+// Returns the closest existing product if the typed name is suspiciously
+// close to (but not identical to an already-selected) one, else null.
+// Threshold: distance <= 2 for names up to ~20 chars, scaling gently for
+// longer ones — tuned to catch typos/near-dupes, not flag genuinely
+// different short names as false positives.
+function findSimilarProduct(typedName) {
+  const q = normalizeProductName(typedName);
+  if (!q) return null;
+  let best = null, bestDist = Infinity;
+  STATE.products.forEach((p) => {
+    const name = normalizeProductName(p.name);
+    if (name === q) { best = p; bestDist = 0; return; }
+    const dist = levenshtein(q, name);
+    const threshold = Math.max(2, Math.floor(Math.max(q.length, name.length) * 0.15));
+    if (dist <= threshold && dist < bestDist) { best = p; bestDist = dist; }
+  });
+  return bestDist <= Math.max(2, Math.floor(q.length * 0.15)) ? best : null;
+}
+function matchFastIntakeProducts(q) {
+  const query = q.trim().toLowerCase();
+  if (!query) return [];
+  return STATE.products.filter((p) => p.name.toLowerCase().includes(query)).slice(0, 8);
+}
+function toggleFastIntake() {
+  fastIntakeOpen = !fastIntakeOpen;
+  if (fastIntakeOpen && !fastIntakeDraft) fastIntakeDraft = blankFastIntakeDraft();
+  if (!fastIntakeOpen) fastIntakeDraft = null;
+  renderSell();
+}
+function renderFastIntakePanel() {
+  if (!fastIntakeOpen) return '';
+  const d = fastIntakeDraft;
+  const matched = d.productId ? STATE.products.find((p) => p.id === d.productId) : null;
+  const results = !matched ? matchFastIntakeProducts(d.query) : [];
+  return `
+    <div class="card fast-intake-panel">
+      <div class="section-title" style="margin:0 0 10px"><h3>⚡ Fast Intake</h3>
+        <button class="btn small secondary" id="fi-close">Close</button>
+      </div>
+      <div class="field dropdown-wrap">
+        <label>Item name</label>
+        ${matched ? `
+          <div class="list-row" style="border-color:var(--accent)">
+            <div><div class="title">${escapeHtml(matched.name)}</div><div class="sub">Adding stock to this existing product</div></div>
+            <button class="btn small secondary" id="fi-change-product">Change</button>
+          </div>
+        ` : `
+          <input id="fi-name" placeholder="Type to search or add new..." value="${escapeHtml(d.query)}" autocomplete="off">
+          <div id="fi-results" class="dropdown-panel">${results.map((p) => `<div class="list-row" data-id="${p.id}"><div><div class="title">${escapeHtml(p.name)}</div><div class="sub">${escapeHtml(p.category || '')} · stock ${p.stock}</div></div></div>`).join('')}</div>
+        `}
+      </div>
+      <div class="row">
+        <div class="field"><label>Cost price (required)</label><input type="number" min="0" step="0.01" id="fi-cost" value="${d.cost}" placeholder="From the supplier's photo"></div>
+        <div class="field"><label>Selling price (required)</label><input type="number" min="0" step="0.01" id="fi-sellprice" value="${d.sellingPrice}"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Quantity</label><input type="number" min="1" step="1" id="fi-qty" value="${d.qty}"></div>
+        ${!matched ? `<div class="field"><label>Category (optional)</label>
+          <select id="fi-category">${STATE.settings.categories.map((c) => `<option ${d.category === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}</select>
+        </div>` : '<div class="field"></div>'}
+      </div>
+      <div class="field"><label>Vendor (optional)</label><input id="fi-vendor" placeholder="WhatsApp supplier" value="${escapeHtml(d.vendorName)}"></div>
+      <p class="sub" style="margin-top:-6px">No formal vendor record needed — this is a real, lightweight receiving record, same as a full GRN.</p>
+      <button class="btn block" id="fi-submit">Add Item to Stock</button>
+    </div>
+  `;
+}
+function bindFastIntakeEvents() {
+  if (!fastIntakeOpen) return;
+  const d = fastIntakeDraft;
+  const closeBtn = document.getElementById('fi-close');
+  if (closeBtn) closeBtn.onclick = toggleFastIntake;
+  const nameInput = document.getElementById('fi-name');
+  if (nameInput) {
+    nameInput.oninput = (e) => { d.query = e.target.value; renderSell(); };
+    nameInput.focus();
+    nameInput.selectionStart = nameInput.selectionEnd = nameInput.value.length;
+  }
+  document.querySelectorAll('#fi-results [data-id]').forEach((el) => {
+    el.onclick = () => {
+      const p = STATE.products.find((x) => x.id === el.dataset.id);
+      if (!p) return;
+      d.productId = p.id;
+      d.cost = p.costPrice || '';
+      d.sellingPrice = p.sellingPrice || '';
+      d.sellingPriceTouched = true;
+      renderSell();
+    };
+  });
+  const changeBtn = document.getElementById('fi-change-product');
+  if (changeBtn) changeBtn.onclick = () => { d.productId = null; d.query = ''; renderSell(); };
+  const costInput = document.getElementById('fi-cost');
+  if (costInput) costInput.oninput = (e) => {
+    d.cost = e.target.value;
+    if (!d.sellingPriceTouched && STATE.settings.defaultMarginPercent) {
+      const cost = parseFloat(d.cost);
+      if (!isNaN(cost)) {
+        const suggested = (cost * (1 + STATE.settings.defaultMarginPercent / 100)).toFixed(2);
+        d.sellingPrice = suggested;
+        const spInput = document.getElementById('fi-sellprice');
+        if (spInput) spInput.value = suggested;
+      }
+    }
+  };
+  const spInput = document.getElementById('fi-sellprice');
+  if (spInput) spInput.oninput = (e) => { d.sellingPrice = e.target.value; d.sellingPriceTouched = true; };
+  const qtyInput = document.getElementById('fi-qty');
+  if (qtyInput) qtyInput.oninput = (e) => { d.qty = e.target.value; };
+  const catSelect = document.getElementById('fi-category');
+  if (catSelect) catSelect.onchange = (e) => { d.category = e.target.value; };
+  const vendorInput = document.getElementById('fi-vendor');
+  if (vendorInput) vendorInput.oninput = (e) => { d.vendorName = e.target.value; };
+  document.getElementById('fi-submit').onclick = submitFastIntake;
+}
+async function submitFastIntake() {
+  const d = fastIntakeDraft;
+  const name = d.productId ? STATE.products.find((p) => p.id === d.productId).name : d.query.trim();
+  if (!name) { toast('Item name is required'); return; }
+  const cost = parseFloat(d.cost);
+  if (d.cost === '' || isNaN(cost) || cost < 0) { toast('Cost price is required'); return; }
+  const sellingPrice = parseFloat(d.sellingPrice);
+  if (d.sellingPrice === '' || isNaN(sellingPrice) || sellingPrice < 0) { toast('Selling price is required'); return; }
+  const qty = parseInt(d.qty, 10);
+  if (!qty || qty <= 0) { toast('Quantity must be at least 1'); return; }
+
+  // Confirm before silently merging into a similar-but-not-identical
+  // existing product, unless the cashier already explicitly picked one
+  // from the dropdown (that's already a deliberate choice, not a guess).
+  if (!d.productId) {
+    const similar = findSimilarProduct(name);
+    if (similar) {
+      const proceed = await confirmFastIntakeMerge(name, similar);
+      if (proceed === null) return; // modal dismissed without a choice
+      if (proceed) d.productId = similar.id;
+    }
+  }
+
+  const btn = document.getElementById('fi-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+  try {
+    let product = d.productId ? STATE.products.find((p) => p.id === d.productId) : null;
+    if (!product) {
+      const now = new Date().toISOString();
+      product = {
+        id: uid('P'), name, category: d.category || 'Other', brand: '', costPrice: cost, sellingPrice: 0, stock: 0, notes: '',
+        photo: null, priceHistory: [], createdAt: now, updatedAt: now
+      };
+      STATE.products.push(product);
+      await saveKey('products');
+    }
+    const res = await fetch('/api/grns', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        vendorName: d.vendorName.trim(), invoiceNumber: '', source: 'fast-intake',
+        items: [{ productId: product.id, qty, cost, sellingPrice }],
+        discount: 0, by: STATE.user, attachment: null
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) { toast(data.message || 'Could not save this item'); return; }
+    const [grns, products] = await Promise.all([apiGet('grns'), apiGet('products')]);
+    STATE.grns = grns; STATE.products = products;
+    fastIntakeOpen = false;
+    fastIntakeDraft = null;
+    addToCartQty(product.id, qty);
+    toast(`${name} added to stock and to the cart`);
+    renderSell();
+  } catch (e) {
+    toast('Could not reach the server to save this item.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add Item to Stock'; }
+  }
+}
+// Resolves true (merge into the existing product), false (create as a new
+// separate item), or null (dismissed / no choice made — caller aborts).
+// A real modal, not window.confirm(), so it's consistent with the rest of
+// this app's confirmations and doesn't block on a native browser dialog.
+function confirmFastIntakeMerge(typedName, existing) {
+  return new Promise((resolve) => {
+    openModal(`
+      <h3>Looks like an existing product</h3>
+      <p class="sub" style="margin-top:-6px">"${escapeHtml(typedName)}" looks similar to <strong>${escapeHtml(existing.name)}</strong>, already in your products. Add this stock to that product, or create "${escapeHtml(typedName)}" as a separate new item?</p>
+      <div class="modal-actions">
+        <button class="btn secondary" id="fim-new">Create as new item</button>
+        <button class="btn" id="fim-merge">Use "${escapeHtml(existing.name)}"</button>
+      </div>
+    `);
+    let decided = false;
+    document.getElementById('fim-new').onclick = () => { decided = true; closeModal(); resolve(false); };
+    document.getElementById('fim-merge').onclick = () => { decided = true; closeModal(); resolve(true); };
+    document.getElementById('modalCloseBtn').addEventListener('click', () => { if (!decided) resolve(null); }, { once: true });
+  });
+}
+function addToCartQty(productId, qty) {
+  const p = STATE.products.find((x) => x.id === productId);
+  if (!p) return;
+  const existing = STATE.sellCart.find((it) => it.productId === productId);
+  const inCartQty = existing ? existing.qty : 0;
+  const capped = Math.min(qty, Math.max(0, (p.stock || 0) - inCartQty));
+  if (capped <= 0) { toast('Not enough stock to add to cart'); return; }
+  if (existing) existing.qty += capped;
+  else STATE.sellCart.push({ productId: p.id, name: p.name, qty: capped, price: p.sellingPrice, cost: p.costPrice });
+}
+
+/* ---------------- Frequently Sold ----------------
+   One-tap add for whatever this shop's real customers actually buy most —
+   computed live from real bill history (last 60 days, non-voided,
+   non-quote), never a manually curated list. */
+function computeFrequentlySold(limit) {
+  const cutoff = addDaysISO(-60);
+  const tally = new Map();
+  STATE.bills.forEach((b) => {
+    if (b.status === 'voided' || b.type === 'quote') return;
+    if (b.date < cutoff) return;
+    (b.items || []).forEach((it) => {
+      tally.set(it.productId, (tally.get(it.productId) || 0) + it.qty);
+    });
+  });
+  return [...tally.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([productId]) => STATE.products.find((p) => p.id === productId))
+    .filter((p) => p && (p.stock || 0) > 0)
+    .slice(0, limit);
+}
+function renderFrequentlySoldStrip() {
+  const top = computeFrequentlySold(8);
+  if (top.length === 0) return '';
+  return `
+    <div class="freq-sold-strip" id="freq-sold-strip">
+      ${top.map((p) => `<button class="freq-sold-tile" data-freq-id="${p.id}"><span class="ft-name">${escapeHtml(p.name)}</span><span class="ft-price">${money(p.sellingPrice)}</span></button>`).join('')}
+    </div>
+  `;
+}
+
 // pos-visual-hierarchy: the primary number is state-dependent. Building the
 // cart, Total is what matters; the moment cash is tendered, Change Due (or
 // how much short) becomes the number the cashier actually needs to act on,
@@ -191,9 +462,12 @@ function renderSell() {
         <button data-type="memo" class="${STATE.sellType === 'memo' ? 'active' : ''}">Credit Memo</button>
         <button data-type="quote" class="${STATE.sellType === 'quote' ? 'active' : ''}">Quotation</button>
       </div>
+      <button class="btn small ${fastIntakeOpen ? '' : 'secondary'}" id="sell-fastintake-btn">⚡ Fast Intake</button>
       ${posFeatureEnabled('heldSales') ? `<button class="btn small secondary" id="sell-held-btn">\u{1F553} Held Sales${heldCount ? ` (${heldCount})` : ''}</button>` : ''}
       ${posFeatureEnabled('returnVoid') ? `<button class="btn small secondary" id="sell-return-btn">↺ Return / Void a Bill</button>` : ''}
     </div>
+    ${renderFastIntakePanel()}
+    ${!globallyOutOfStock ? renderFrequentlySoldStrip() : ''}
     ${globallyOutOfStock ? `<div class="empty-state">
       <div class="empty-icon">\u{1F4E6}</div>
       <div>${STATE.products.length === 0 ? 'No products yet.' : 'Nothing in stock right now.'}</div>
@@ -234,7 +508,7 @@ function renderSell() {
               </div>
               <div class="scq">
                 <button class="btn small secondary" data-qtyminus="${idx}" aria-label="Decrease quantity of ${escapeHtml(it.name)}">-</button>
-                <span aria-label="Quantity: ${it.qty}">${it.qty}</span>
+                <input type="number" min="1" step="1" class="cart-qty-input" data-qtyidx="${idx}" value="${it.qty}" aria-label="Quantity of ${escapeHtml(it.name)}">
                 <button class="btn small secondary" data-qtyplus="${idx}" aria-label="Increase quantity of ${escapeHtml(it.name)}">+</button>
               </div>
               <strong class="sca">${money(it.qty * it.price)}</strong>
@@ -386,6 +660,32 @@ function renderSell() {
   c.querySelectorAll('[data-qtyminus]').forEach((b) => b.onclick = () => { adjustQty(parseInt(b.dataset.qtyminus, 10), -1); });
   c.querySelectorAll('[data-qtyplus]').forEach((b) => b.onclick = () => { adjustQty(parseInt(b.dataset.qtyplus, 10), 1); });
   c.querySelectorAll('[data-remove]').forEach((b) => b.onclick = () => { STATE.sellCart.splice(parseInt(b.dataset.remove, 10), 1); renderSell(); });
+  // Typed quantity entry (cart speed improvement) — commits on blur/Enter,
+  // clamped to real stock same as the +/- buttons. Escape cancels the edit
+  // and reverts to the last committed quantity, rather than closing
+  // whatever modal happens to be open (Esc's existing app-wide job).
+  c.querySelectorAll('.cart-qty-input').forEach((el) => {
+    el.onclick = (e) => e.stopPropagation();
+    const idx = parseInt(el.dataset.qtyidx, 10);
+    const commit = () => {
+      const it = STATE.sellCart[idx];
+      const p = STATE.products.find((x) => x.id === it.productId);
+      const val = parseInt(el.value, 10);
+      if (!val || val <= 0) { STATE.sellCart.splice(idx, 1); renderSell(); return; }
+      if (p && val > p.stock) { toast('Not enough stock'); el.value = it.qty; return; }
+      it.qty = val;
+      renderSell();
+    };
+    el.onchange = commit;
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { e.stopPropagation(); el.value = STATE.sellCart[idx].qty; el.blur(); }
+    });
+  });
+  const fastIntakeBtn = document.getElementById('sell-fastintake-btn');
+  if (fastIntakeBtn) fastIntakeBtn.onclick = toggleFastIntake;
+  bindFastIntakeEvents();
+  c.querySelectorAll('[data-freq-id]').forEach((b) => { b.onclick = () => addToCart(b.dataset.freqId); });
   c.querySelectorAll('.cart-price-input').forEach((el) => {
     el.onclick = (e) => e.stopPropagation();
     el.onchange = (e) => {
@@ -581,7 +881,89 @@ function adjustQty(idx, delta) {
 // generating the number locally and PUTting four whole collections back
 // (which is what let two near-simultaneous sales collide on the same
 // invoice number or silently overwrite each other's stock changes).
-async function completeSale() {
+// FAST_INTAKE_COMMAND.md: "who we sold, what we sold" gets captured on
+// every sale now, not just credit ones — if Complete Sale is pressed with
+// no customer attached yet, this gates on a prompt (search existing /
+// quick-add new / explicit walk-in skip) before the real completeSale logic
+// runs below. Quotations are excluded (never a real sale, nothing to
+// attribute). A named customer is still genuinely optional — "Skip" remains
+// one tap away — this just makes that a deliberate choice instead of a
+// silent default.
+function completeSale() {
+  if (STATE.sellCart.length === 0) return;
+  if (STATE.sellType !== 'quote' && !STATE.sellCustomerId) {
+    promptAttachCustomer(() => finishCompleteSale());
+    return;
+  }
+  return finishCompleteSale();
+}
+function promptAttachCustomer(onDone) {
+  let query = '';
+  let newFormOpen = false;
+  const renderNewForm = () => {
+    const area = document.getElementById('sic-addnew-form');
+    if (!area) return;
+    area.innerHTML = `
+      <div class="list-row" style="flex-direction:column;align-items:stretch;gap:8px;cursor:default">
+        <input id="sic-newcust-name" placeholder="Name" value="${escapeHtml(query || '')}">
+        <div style="display:flex;gap:8px">
+          <input id="sic-newcust-phone" placeholder="WhatsApp number" type="tel" style="flex:1">
+          <button class="btn small" id="sic-newcust-save" style="flex-shrink:0">Save</button>
+        </div>
+      </div>`;
+    document.getElementById('sic-newcust-save').onclick = saveNew;
+    ['sic-newcust-name', 'sic-newcust-phone'].forEach((id) => {
+      document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveNew(); } });
+    });
+  };
+  const renderResults = () => {
+    const resultsEl = document.getElementById('sic-results');
+    if (!resultsEl) return;
+    const q = query.trim();
+    const matches = q ? matchSellCustomers(q) : recentSellCustomers(5);
+    const pinnedHtml = `
+      <div class="list-row" id="sic-skip" style="cursor:pointer;border-color:var(--accent)"><div class="title">\u{1F4B5} Skip — walk-in / cash sale</div></div>
+      <div class="list-row" id="sic-addnew" style="cursor:pointer"><div class="title">+ New Customer</div></div>
+      <div id="sic-addnew-form"></div>`;
+    const listHtml = matches.length
+      ? (q ? '' : '<div class="sub" style="padding:4px 6px">Recent</div>') +
+        matches.map((cu) => `<div class="list-row" data-id="${cu.id}" style="cursor:pointer"><div><div class="title">${escapeHtml(cu.name)}</div><div class="sub">${escapeHtml(cu.phone || '')}</div></div></div>`).join('')
+      : (q ? '<div class="sub" style="padding:4px 6px">No match</div>' : '');
+    resultsEl.innerHTML = pinnedHtml + listHtml;
+    resultsEl.querySelectorAll('[data-id]').forEach((el) => {
+      el.onclick = () => { STATE.sellCustomerId = el.dataset.id; closeModal(); onDone(); };
+    });
+    document.getElementById('sic-skip').onclick = () => { closeModal(); onDone(); };
+    document.getElementById('sic-addnew').onclick = () => { newFormOpen = true; renderNewForm(); };
+    if (newFormOpen || (q && matches.length === 0)) renderNewForm();
+  };
+  const saveNew = async () => {
+    const name = document.getElementById('sic-newcust-name').value.trim();
+    const phone = document.getElementById('sic-newcust-phone').value.trim();
+    if (!name) { toast('Name is required'); return; }
+    if (!phone) { toast('WhatsApp number is required'); return; }
+    const cust = { id: uid('C'), name, phone, address: '', dues: 0, ledger: [] };
+    STATE.customers.push(cust);
+    await saveKey('customers');
+    STATE.sellCustomerId = cust.id;
+    closeModal();
+    onDone();
+  };
+  openModal(`
+    <h3>Attach a customer to this sale</h3>
+    <p class="sub" style="margin-top:-6px">Capture who bought this — search an existing customer, add a new one, or skip for a walk-in cash sale.</p>
+    <div class="field dropdown-wrap">
+      <input id="sic-search" placeholder="Search name or phone..." autocomplete="off">
+      <div id="sic-results" class="dropdown-panel"></div>
+    </div>
+  `);
+  document.getElementById('modalCloseBtn').addEventListener('click', () => toast('Sale not completed'), { once: true });
+  const searchInput = document.getElementById('sic-search');
+  searchInput.oninput = (e) => { query = e.target.value; renderResults(); };
+  searchInput.focus();
+  renderResults();
+}
+async function finishCompleteSale() {
   if (STATE.sellCart.length === 0) return;
   const isQuote = STATE.sellType === 'quote';
   const customer = STATE.sellCustomerId ? STATE.customers.find((x) => x.id === STATE.sellCustomerId) : null;

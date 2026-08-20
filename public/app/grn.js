@@ -375,9 +375,12 @@ function openGrnHistoryDetail(id) {
 // Same pattern as sell.js's voidBillFlow — reverses stock + vendor balance
 // server-side (POST /api/grns/:id/void), never mutates the original record.
 function voidGrnFlow(g) {
+  const vendorReversalText = g.vendorId
+    ? ` and reverses ${escapeHtml(g.vendorName)}'s balance by ${money(g.total)}`
+    : ` (no formal vendor record — ${escapeHtml(g.vendorName)} was free text, nothing to reverse there)`;
   openModal(`
     <h3>Void ${escapeHtml(g.number)}?</h3>
-    <p class="sub" style="margin-top:-6px">This removes ${g.items.length} item(s) from stock and reverses ${escapeHtml(g.vendorName)}'s balance by ${money(g.total)}. This cannot be undone.</p>
+    <p class="sub" style="margin-top:-6px">This removes ${g.items.length} item(s) from stock${vendorReversalText}. This cannot be undone.</p>
     <div class="field"><label>Reason (optional)</label><input id="grn-void-reason" placeholder="e.g. Entered wrong vendor by mistake"></div>
     <div class="modal-actions">
       <button class="btn secondary" id="grn-void-cancel">Cancel</button>

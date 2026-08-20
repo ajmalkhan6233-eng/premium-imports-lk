@@ -54,7 +54,12 @@ function defaultData() {
         { name: '5 days', days: 5 },
         { name: '1 week', days: 7 }
       ],
-      agingThresholdDays: 30
+      agingThresholdDays: 30,
+      // FAST_INTAKE_COMMAND.md: optional auto-fill for the Fast Intake
+      // panel's selling-price field (cost + this % markup) — 0/blank means
+      // "not configured," so the field just starts empty and the cashier
+      // types a real price. Always editable regardless of this default.
+      defaultMarginPercent: 0
     },
     // SELF_SUSTAINING_ADMIN_COMMAND.md Phase 2 scaffold: storefront/POS
     // values an admin can change from the "Site & POS Editor" tab without a
@@ -810,16 +815,44 @@ app.post('/api/bills/:id/void', (req, res) => {
 // Fix #4: GRN save — same pattern as /api/bills. Number reservation, stock
 // increment, cost-price update, and vendor ledger update all happen in one
 // write-locked, synchronous critical section.
+//
+// FAST_INTAKE_COMMAND.md: this is also the single-item front door the Sell
+// screen's Fast Intake panel writes through — same GRN/stock/cost pipeline
+// as the full multi-item screen (so Reports/COGS see both identically),
+// just with `vendorId` optional. A real formal vendor is still required for
+// the full GRN screen (its own client-side check still enforces that,
+// unchanged), but WhatsApp-supplier sourcing has no formal vendor record —
+// when `vendorId` is omitted, `vendorName` free text (defaulting to
+// "WhatsApp supplier") is stored directly on the GRN and no vendor ledger
+// entry is made, since there's no real vendor account to post it against.
+// `invoiceNumber` is likewise optional now for the same reason (a WhatsApp
+// photo has no paper invoice number to record) — never fabricated, just
+// left blank, per this project's own "never invent/estimate" data rule.
+// `source: 'fast-intake'` additionally requires a real cost on every line
+// (the whole point of that flow — cost is known at entry time, never
+// guessed) and an explicit sellingPrice per line, applied straight to the
+// product (same authority GRN already has over costPrice, just extended to
+// sellingPrice — GRN already lets non-admin staff set costPrice with no
+// separate gate, so this doesn't introduce a new admin-bypass).
 app.post('/api/grns', (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
   withWriteLock(() => {
-    const { vendorId, invoiceNumber, items, discount, attachment } = req.body || {};
+    const { vendorId, vendorName, invoiceNumber, items, discount, attachment, source } = req.body || {};
     const by = session.user;
-    if (!vendorId) return res.status(400).json({ error: 'bad_request', message: 'Select a vendor' });
-    const vendor = db.vendors.find((v) => v.id === vendorId);
-    if (!vendor) return res.status(400).json({ error: 'bad_request', message: 'Unknown vendor' });
-    if (!invoiceNumber || !String(invoiceNumber).trim()) return res.status(400).json({ error: 'bad_request', message: 'Invoice number is required' });
+    const isFastIntake = source === 'fast-intake';
+    let vendor = null;
+    if (vendorId) {
+      vendor = db.vendors.find((v) => v.id === vendorId);
+      if (!vendor) return res.status(400).json({ error: 'bad_request', message: 'Unknown vendor' });
+    } else if (!isFastIntake) {
+      // The full GRN screen's own UI always sends a real vendorId — this
+      // guards direct API callers using that path without one.
+      return res.status(400).json({ error: 'bad_request', message: 'Select a vendor' });
+    }
+    if (!isFastIntake && (!invoiceNumber || !String(invoiceNumber).trim())) {
+      return res.status(400).json({ error: 'bad_request', message: 'Invoice number is required' });
+    }
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'bad_request', message: 'No items' });
     if (!validAttachment(attachment)) return res.status(400).json({ error: 'bad_request', message: 'Attachment must be a JPG, PNG, WEBP, or PDF under ~8.5MB.' });
 
@@ -827,17 +860,32 @@ app.post('/api/grns', (req, res) => {
     for (const it of items) {
       const product = db.products.find((p) => p.id === it.productId);
       if (!product) return res.status(400).json({ error: 'bad_request', message: `Unknown product: ${it.productId}` });
-      resolvedItems.push({ productId: product.id, name: product.name, category: product.category, qty: it.qty, cost: it.cost });
+      const qty = parseInt(it.qty, 10);
+      if (!qty || qty <= 0) return res.status(400).json({ error: 'bad_request', message: `Invalid quantity for ${product.name}` });
+      const cost = Number(it.cost);
+      if (isFastIntake && (isNaN(cost) || cost < 0)) return res.status(400).json({ error: 'bad_request', message: `Cost price is required for ${product.name}` });
+      let sellingPrice;
+      if (it.sellingPrice !== undefined && it.sellingPrice !== null) {
+        const sp = Number(it.sellingPrice);
+        if (isFastIntake && (isNaN(sp) || sp < 0)) return res.status(400).json({ error: 'bad_request', message: `Selling price is required for ${product.name}` });
+        if (!isNaN(sp) && sp >= 0) sellingPrice = sp;
+      } else if (isFastIntake) {
+        return res.status(400).json({ error: 'bad_request', message: `Selling price is required for ${product.name}` });
+      }
+      resolvedItems.push({ productId: product.id, name: product.name, category: product.category, qty, cost: isNaN(cost) ? (it.cost || 0) : cost, sellingPrice });
     }
     const subtotal = resolvedItems.reduce((s, it) => s + it.qty * it.cost, 0);
     const disc = parseFloat(discount) || 0;
     const total = Math.max(0, subtotal - disc);
     const number = reserveNumber('grn', 'GRN');
+    const trimmedInvoice = invoiceNumber ? String(invoiceNumber).trim() : '';
+    const resolvedVendorName = vendor ? vendor.name : (String(vendorName || '').trim() || 'WhatsApp supplier');
 
     const grn = {
       id: newId('G'), number, date: todayStamp(),
-      vendorId, vendorName: vendor.name, invoiceNumber: String(invoiceNumber).trim(),
+      vendorId: vendor ? vendor.id : null, vendorName: resolvedVendorName, invoiceNumber: trimmedInvoice || null,
       items: resolvedItems, subtotal, discount: disc, total, by: by || null,
+      source: isFastIntake ? 'fast-intake' : 'full',
       attachment: (attachment && attachment.dataUrl) ? {
         filename: String(attachment.filename || 'attachment').slice(0, 200),
         dataUrl: attachment.dataUrl,
@@ -847,12 +895,18 @@ app.post('/api/grns', (req, res) => {
     db.grns.push(grn);
     resolvedItems.forEach((it) => {
       const p = db.products.find((x) => x.id === it.productId);
-      if (p) { p.stock = (p.stock || 0) + it.qty; p.costPrice = it.cost; }
+      if (p) {
+        p.stock = (p.stock || 0) + it.qty;
+        p.costPrice = it.cost;
+        if (it.sellingPrice !== undefined) p.sellingPrice = it.sellingPrice;
+      }
     });
-    vendor.purchased = (vendor.purchased || 0) + total;
-    vendor.balance = (vendor.purchased || 0) - (vendor.paid || 0);
-    vendor.ledger = vendor.ledger || [];
-    vendor.ledger.push({ id: newId('L'), type: 'grn', date: todayStamp(), amount: total, ref: grn.number, note: '', balanceAfter: vendor.balance, by: by || null });
+    if (vendor) {
+      vendor.purchased = (vendor.purchased || 0) + total;
+      vendor.balance = (vendor.purchased || 0) - (vendor.paid || 0);
+      vendor.ledger = vendor.ledger || [];
+      vendor.ledger.push({ id: newId('L'), type: 'grn', date: todayStamp(), amount: total, ref: grn.number, note: '', balanceAfter: vendor.balance, by: by || null });
+    }
     saveData();
     res.json({ ok: true, grn });
   }).catch((e) => res.status(500).json({ error: 'server_error', message: e.message }));

@@ -121,6 +121,9 @@ function renderSettings() {
       <div class="field"><label>Aging threshold (days)</label><input type="number" min="1" step="1" id="st-agingdays" value="${s.agingThresholdDays !== undefined ? s.agingThresholdDays : 30}"></div>
       <p class="sub" style="margin-top:-6px">Products still unsold this many days after their oldest received batch get an "Aging" badge on the Products list, so slow-moving stock doesn't get forgotten. Visibility only — never changes cost price or margin.</p>
       <button class="btn small" id="st-save-agingdays">Save</button>
+      <div class="field" style="margin-top:14px"><label>Default margin % (optional, for Fast Intake)</label><input type="number" min="0" step="0.1" id="st-margin" placeholder="e.g. 30" value="${s.defaultMarginPercent || ''}"></div>
+      <p class="sub" style="margin-top:-6px">When set, the Fast Intake panel on Sell suggests a selling price (cost + this %) as a starting point — always still editable before saving. Leave blank to type every selling price by hand.</p>
+      <button class="btn small" id="st-save-margin">Save</button>
     </div>
 
     ${isAdmin() ? `
@@ -291,6 +294,12 @@ function renderSettings() {
   document.getElementById('st-save-startbill').onclick = async () => {
     const val = parseInt(document.getElementById('st-startbill').value, 10);
     s.startingBillNumber = (val && val > 0) ? val : 1;
+    await saveKey('settings');
+    toast('Saved');
+  };
+  document.getElementById('st-save-margin').onclick = async () => {
+    const val = parseFloat(document.getElementById('st-margin').value);
+    s.defaultMarginPercent = (!isNaN(val) && val >= 0) ? val : 0;
     await saveKey('settings');
     toast('Saved');
   };

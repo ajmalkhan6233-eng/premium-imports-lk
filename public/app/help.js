@@ -84,6 +84,28 @@ const HELP_SECTIONS = [
     }
   },
   {
+    id: 'speed',
+    icon: '⚡',
+    en: {
+      title: 'Selling faster (Sell screen)',
+      body: [
+        '⚡ Fast Intake — found an item one at a time from a WhatsApp supplier photo? Tap "Fast Intake" on Sell to log its real cost, selling price, and quantity right there — no trip to GRN needed. It writes a real stock record (same system the full GRN screen uses) and adds the item straight to the current cart.',
+        '🔥 Frequently Sold — a row of one-tap tiles near the top of Sell, computed automatically from your last 60 days of real sales. Nothing to curate by hand.',
+        'Cart quantity — tap the number on any cart line and type a quantity directly, instead of tapping + or − repeatedly.',
+        'Keyboard shortcuts (desktop): Enter completes the sale once you\'re on the Sell screen and not typing in a field. Esc closes any open window/popup, or cancels an in-progress cart-quantity edit. "/" jumps straight to the customer search box.'
+      ]
+    },
+    ta: {
+      title: 'விரைவான விற்பனை (Sell திரை)',
+      body: [
+        '⚡ Fast Intake — WhatsApp வழங்குநர் குழுவிலிருந்து ஒரு பொருள் மட்டும் கிடைத்ததா? Sell திரையில் "Fast Intake"-ஐ தட்டி, உண்மையான cost, விற்பனை விலை, அளவு ஆகியவற்றை உடனே பதிவு செய்யலாம் — GRN திரைக்குச் செல்ல வேண்டாம். இது முழு GRN திரை பயன்படுத்தும் அதே பதிவு முறையில் சேமிக்கப்பட்டு, தற்போதைய கார்ட்டில் நேரடியாகச் சேர்க்கப்படும்.',
+        '🔥 Frequently Sold — கடந்த 60 நாட்களின் உண்மையான விற்பனையிலிருந்து தானாகக் கணக்கிடப்பட்ட, ஒரே தட்டலில் சேர்க்கக்கூடிய பொருட்களின் வரிசை, Sell திரையின் மேலே.',
+        'கார்ட் அளவு — + / − தட்டுவதற்குப் பதிலாக, கார்ட் வரிசையில் உள்ள எண்ணைத் தட்டி நேரடியாக அளவை தட்டச்சு செய்யலாம்.',
+        'விசைப்பலகை குறுக்குவழிகள் (desktop): Sell திரையில், எதுவும் தட்டச்சு செய்யாத போது Enter — விற்பனையை முடிக்கும். Esc — திறந்திருக்கும் எந்த சாளரத்தையும் மூடும், அல்லது கார்ட் அளவு திருத்தத்தை ரத்து செய்யும். "/" — வாடிக்கையாளர் தேடலுக்கு நேரடியாகச் செல்லும்.'
+      ]
+    }
+  },
+  {
     id: 'coming',
     icon: '🚧',
     en: {
